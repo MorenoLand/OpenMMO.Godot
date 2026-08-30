@@ -520,8 +520,10 @@ func _refresh_bag() -> void:
 func _item_display_name(item: Dictionary, fallback: String) -> String:
 	var item_name: String = str(item.get("name", item.get("item_name", ""))).strip_edges()
 	var item_id: int = current_content.battle_item_id(item) if current_content != null else int(item.get("item_id", item.get("id", item.get("front_sprite_id", item.get("internal_id", 0)))))
-	if (item_name.is_empty() or item_name.to_lower() == "item") and current_content != null and item_id > 0:
-		item_name = str(current_content.battle_item_info(item_id).get("name", "")).strip_edges()
+	if current_content != null and item_id > 0:
+		var resolved_name: String = str(current_content.battle_item_info(item_id).get("name", "")).strip_edges()
+		if not resolved_name.is_empty() and resolved_name.to_lower() != "item":
+			item_name = resolved_name
 	if item_name.is_empty() or item_name.to_lower() == "item":
 		return "Item #%d" % item_id if item_id > 0 else fallback
 	return item_name

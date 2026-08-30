@@ -51,11 +51,16 @@ func _init() -> void:
 	var charmander: String = item_content.battle_pokemon_name(4)
 	var treecko: String = item_content.battle_pokemon_name(252)
 	var global_content: OpenMMOContent = OpenMMOContent.new()
-	global_content.battle_item_catalog = {"5021": {"item_id": 5021, "internal_id": 21, "name": "AWAKENING", "price": 250, "pocket": 1, "category": "items"}, "5459": {"item_id": 5459, "internal_id": 459, "name": "PARCEL", "price": 0, "pocket": 0, "category": "items"}}
+	global_content.battle_item_catalog = {"21": {"item_id": 21, "internal_id": 21, "name": "LOCAL NAMESPACE ITEM", "price": 0, "pocket": 0, "category": "items"}, "5021": {"item_id": 5021, "internal_id": 21, "name": "AWAKENING", "price": 250, "pocket": 1, "category": "items"}, "5459": {"item_id": 5459, "internal_id": 459, "name": "PARCEL", "price": 0, "pocket": 0, "category": "items"}}
 	global_content.battle_item_catalog_loaded = true
 	var global_awaken: Dictionary = global_content.battle_item_info(5021)
+	var local_namespace_item: Dictionary = global_content.battle_item_info(21)
 	var global_parcel: Dictionary = global_content.battle_item_info(5459)
-	if item_content.battle_item_id(parcel_entry) != 5349 or str(potion_info.get("name", "")) != "POTION" or str(parcel_info.get("name", "")) != "OAK'S PARCEL" or str(parcel_info.get("category", "")) != "key_item" or str(last_info.get("name", "")) != "A" or str(global_awaken.get("name", "")) != "AWAKENING" or str(global_parcel.get("name", "")) != "PARCEL" or charmander != "CHARMANDER" or treecko != "TREECKO":
+	var missing_global_content: OpenMMOContent = OpenMMOContent.new()
+	missing_global_content.battle_item_catalog = {"21": {"item_id": 21, "internal_id": 21, "name": "LOCAL NAMESPACE ITEM", "price": 0, "pocket": 0, "category": "items"}}
+	missing_global_content.battle_item_catalog_loaded = true
+	var missing_server_item: Dictionary = missing_global_content.battle_item_info(5021)
+	if item_content.battle_item_id(parcel_entry) != 5349 or str(potion_info.get("name", "")) != "POTION" or str(parcel_info.get("name", "")) != "OAK'S PARCEL" or str(parcel_info.get("category", "")) != "key_item" or str(last_info.get("name", "")) != "A" or str(global_awaken.get("name", "")) != "AWAKENING" or str(local_namespace_item.get("name", "")) != "LOCAL NAMESPACE ITEM" or str(global_parcel.get("name", "")) != "PARCEL" or not str(missing_server_item.get("name", "")).is_empty() or charmander != "CHARMANDER" or treecko != "TREECKO":
 		push_error("ROM item table catalog did not resolve every item through the dynamic reader")
 		quit(1)
 		return

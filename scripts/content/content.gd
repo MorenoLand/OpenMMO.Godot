@@ -474,7 +474,9 @@ func battle_item_info(item_id: int) -> Dictionary:
 	var internal_id: int = item_id - 5000 if item_id >= 5000 else item_id
 	var info: Dictionary = {"item_id": item_id, "internal_id": internal_id, "name": "", "price": 0, "pocket": 0, "category": "items"}
 	var catalog: Dictionary = _battle_item_catalog()
-	var cached_info: Variant = catalog.get(cache_key, catalog.get(str(internal_id), null))
+	var cached_info: Variant = catalog.get(cache_key, null)
+	if cached_info == null and item_id < 5000:
+		cached_info = catalog.get(str(internal_id), null)
 	if cached_info is Dictionary and not str((cached_info as Dictionary).get("name", "")).strip_edges().is_empty() and str((cached_info as Dictionary).get("name", "")).strip_edges().to_lower() != "item":
 		info = (cached_info as Dictionary).duplicate(true)
 		info["item_id"] = item_id
