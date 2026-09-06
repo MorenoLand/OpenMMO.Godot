@@ -177,7 +177,19 @@ func map_data_for_location(bank_id: int, map_id: int) -> Dictionary:
 		return {}
 	return chosen.map_data(local_id)
 
+func content_for_text_id(text_id: int) -> OpenMMOContent:
+	# 0x10xxxxxx = Emerald file-offset tag (OpenMMO-Client gba_text.h); prefer Hoenn ROM.
+	var tag: int = (text_id >> 24) & 0xFF
+	if tag == 0x10:
+		var hoenn: OpenMMOContent = content_for_region("hoenn")
+		if hoenn != null:
+			return hoenn
+	if content != null:
+		return content
+	return _preferred_content()
+
 func activate_content_for_location(bank_id: int, map_id: int) -> OpenMMOContent:
+
 	var chosen: OpenMMOContent = content_for_location(bank_id, map_id)
 	if chosen != null:
 		content = chosen

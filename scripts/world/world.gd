@@ -305,6 +305,8 @@ func _on_map_load(value: Dictionary) -> void:
 		dialogue_overlay.close_dialogue()
 		map_view.set_dialogue_active(false)
 	server_dialogue_active = false
+	if map_view != null and GameState.content != null:
+		map_view.set_content(GameState.content)
 	var map_id: String = str(value.get("local_map_id", ""))
 	if map_id.is_empty():
 		status_label.text = "OpenMMO did not provide a renderable map"
@@ -818,7 +820,8 @@ func _on_dialog_action_received(action: Dictionary) -> void:
 	var text_id: int = int(action.get("text_id", 0))
 	var pages: Array = _streamed_dialogue_pages(action.get("detail", PackedByteArray()))
 	if pages.is_empty():
-		var dialogue: Dictionary = GameState.content.dialogue_for_text_id(text_id) if GameState.content != null else {}
+		var rom_content: OpenMMOContent = GameState.content_for_text_id(text_id)
+		var dialogue: Dictionary = rom_content.dialogue_for_text_id(text_id) if rom_content != null else {}
 		pages = dialogue.get("pages", []) if not dialogue.is_empty() else []
 	if pages.is_empty():
 		pages = ["Dialogue text 0x%08X is unavailable in the selected ROM." % text_id]
@@ -926,10 +929,13 @@ func _resolve_dialogue_pages(pages: Array) -> Array:
 	return resolved
 
 func _dialogue_page_is_placeholder_spam(page: String) -> bool:
-	# Only drop obvious Hoenn placeholder floods; never filter ordinary Kanto dialogue.
+	# Drop Hoenn placeholder / decode-garbage floods; never filter ordinary Kanto dialogue.
 	var upper: String = page.to_upper()
 	var team_hits: int = upper.count("MAGMA") + upper.count("AQUA") + upper.count("MAXIE") + upper.count("ARCHIE")
 	if team_hits >= 6 and page.count("{") + team_hits >= 8:
+		return true
+	var question_marks: int = page.count("?")
+	if question_marks >= 8 and question_marks * 2 >= page.length():
 		return true
 	if page.count("\n") >= 80:
 		return true

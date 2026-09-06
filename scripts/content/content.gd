@@ -8,7 +8,6 @@ const SCHEMA_VERSION: int = 1
 const KANTO_GBA_CONTENT_ID: String = "kanto-gba-slice-v1"
 const FIRE_RED_REV1_SHA1: String = "dd5945db9b930750cb39d00c84da8571feebf417"
 const FIRE_RED_SHA1: String = "41cb23d8dccc8ebd7c649cd8fbb58eeace6e2fdc"
-const FIRE_RED_REV1_DIALOGUE_DELTAS: Array = [0x78, 0x73, 0x70]
 const ITEM_RECORD_SIZE: int = 44
 const ITEM_NAME_LENGTH: int = 14
 const ITEM_RECORD_ID_OFFSET: int = 14
@@ -2700,24 +2699,18 @@ func _register_dialogue(map_id: String, local_id: int, script_offset: int, dialo
 func _read_dialogue_for_script(script_offset: int) -> Dictionary:
 	if script_offset < 0 or not _valid_range(script_offset, 1):
 		return {}
+	var walked: Dictionary = _walk_dialogue_for_script(script_offset)
+	if not walked.is_empty() and not _dialogue_pages_are_garbage(walked.get("pages", [])):
+		return walked
+	var scanned: Dictionary = _scan_dialogue_for_script(script_offset)
+	if not scanned.is_empty() and not _dialogue_pages_are_garbage(scanned.get("pages", [])):
+		return scanned
+	return walked if not walked.is_empty() else scanned
+
+func _walk_dialogue_for_script(script_offset: int) -> Dictionary:
 	var cursor: int = script_offset
 	var limit: int = mini(rom_data.size(), script_offset + 512)
 	var data_slot_zero: int = -1
-	for scan_offset in range(script_offset, limit):
-		var scan_opcode: int = int(rom_data[scan_offset])
-		if scan_opcode == 0x67 and scan_offset + 5 <= limit:
-			var direct_message_offset: int = _read_rom_pointer(scan_offset + 1)
-			var direct_dialogue: Dictionary = _decode_rom_text(direct_message_offset)
-			if not direct_dialogue.is_empty():
-				return direct_dialogue
-		if scan_opcode == 0x0F and scan_offset + 8 <= limit and int(rom_data[scan_offset + 1]) == 0:
-			var standard_message_offset: int = _read_rom_pointer(scan_offset + 2)
-			var standard_call: int = int(rom_data[scan_offset + 6])
-			var standard_id: int = int(rom_data[scan_offset + 7])
-			if standard_call == 0x09 and standard_id >= 2 and standard_id <= 6:
-				var standard_dialogue: Dictionary = _decode_rom_text(standard_message_offset)
-				if not standard_dialogue.is_empty():
-					return standard_dialogue
 	while cursor < limit:
 		var opcode: int = int(rom_data[cursor])
 		if opcode == 0x02 or opcode == 0x03:
@@ -2755,8 +2748,42 @@ func _read_dialogue_for_script(script_offset: int) -> Dictionary:
 			if message_offset < 0:
 				return {}
 			return _decode_rom_text(message_offset)
+		if opcode == 0x0F and int(rom_data[cursor + 1]) == 0 and cursor + 8 <= limit:
+			var standard_message_offset: int = _read_rom_pointer(cursor + 2)
+			var standard_call: int = int(rom_data[cursor + 6])
+			var standard_id: int = int(rom_data[cursor + 7])
+			if standard_call == 0x09 and standard_id >= 2 and standard_id <= 6:
+				var standard_dialogue: Dictionary = _decode_rom_text(standard_message_offset)
+				if not standard_dialogue.is_empty():
+					return standard_dialogue
 		cursor += command_size
 	return {}
+
+func _scan_dialogue_for_script(script_offset: int) -> Dictionary:
+	# Fallback only: never trust the first raw 0x67/0x0F byte hit (pointers can embed those bytes).
+	var limit: int = mini(rom_data.size(), script_offset + 512)
+	var best: Dictionary = {}
+	var best_score: int = -1
+	for scan_offset in range(script_offset, limit):
+		var scan_opcode: int = int(rom_data[scan_offset])
+		var candidate_offset: int = -1
+		if scan_opcode == 0x67 and scan_offset + 5 <= limit:
+			candidate_offset = _read_rom_pointer(scan_offset + 1)
+		elif scan_opcode == 0x0F and scan_offset + 8 <= limit and int(rom_data[scan_offset + 1]) == 0:
+			var standard_call: int = int(rom_data[scan_offset + 6])
+			var standard_id: int = int(rom_data[scan_offset + 7])
+			if standard_call == 0x09 and standard_id >= 2 and standard_id <= 6:
+				candidate_offset = _read_rom_pointer(scan_offset + 2)
+		if candidate_offset < 0:
+			continue
+		var dialogue: Dictionary = _decode_rom_text(candidate_offset)
+		if dialogue.is_empty() or _dialogue_pages_are_garbage(dialogue.get("pages", [])):
+			continue
+		var score: int = _dialogue_candidate_score(candidate_offset, dialogue)
+		if score > best_score:
+			best = dialogue
+			best_score = score
+	return best
 
 func _decode_rom_text(text_offset: int) -> Dictionary:
 	if not _valid_range(text_offset, 1):
@@ -2766,6 +2793,8 @@ func _decode_rom_text(text_offset: int) -> Dictionary:
 	var pages: Array = []
 	var current: String = ""
 	var terminated: bool = false
+	var unknown_glyphs: int = 0
+	var glyph_count: int = 0
 	while cursor < rom_data.size() and raw.size() < 4096:
 		var value: int = int(rom_data[cursor])
 		raw.append(value)
@@ -2780,9 +2809,8 @@ func _decode_rom_text(text_offset: int) -> Dictionary:
 				pages.append(current)
 				current = ""
 			0xFA:
-				# \l: wait/scroll in FR; page-break so multi-line boxes are not clipped mid-sentence.
-				pages.append(current)
-				current = ""
+				# \l: scroll/wait — keep as newline (matches pret / OpenMMO-Client), not a page break.
+				current += "\n"
 			0xFD:
 				if cursor >= rom_data.size():
 					break
@@ -2804,13 +2832,17 @@ func _decode_rom_text(text_offset: int) -> Dictionary:
 				raw.append(control)
 				cursor += 1
 				var argument_count: int = _rom_text_control_argument_count(control)
-				if not _valid_range(cursor, argument_count):
+				if argument_count < 0 or not _valid_range(cursor, argument_count):
 					break
 				for argument_index in range(argument_count):
 					raw.append(rom_data[cursor + argument_index])
 				cursor += argument_count
 			_:
-				current += _decode_rom_character(value)
+				var glyph: String = _decode_rom_character(value)
+				current += glyph
+				glyph_count += 1
+				if glyph == "?":
+					unknown_glyphs += 1
 	if not terminated:
 		return {}
 	if not current.is_empty() or pages.is_empty():
@@ -2819,45 +2851,75 @@ func _decode_rom_text(text_offset: int) -> Dictionary:
 		pages.pop_back()
 	if pages.is_empty():
 		return {}
-	return {"text_offset": text_offset, "raw": raw.hex_encode(), "pages": pages}
+	if glyph_count > 0 and float(unknown_glyphs) / float(glyph_count) >= 0.45:
+		return {}
+	return {"text_offset": text_offset, "raw": raw.hex_encode(), "pages": pages, "unknown_glyphs": unknown_glyphs, "glyph_count": glyph_count}
+
+func _gba_text_file_offset(text_id: int) -> int:
+	# OpenMMO textId: 0x08xxxxxx = GBA bus address; 0x10xxxxxx = Emerald file offset; else low 24 bits.
+	var id_value: int = text_id & 0xFFFFFFFF
+	if (id_value & 0xFF000000) == 0x08000000:
+		return id_value - 0x08000000
+	return id_value & 0x00FFFFFF
 
 func dialogue_for_text_id(text_id: int) -> Dictionary:
-	var bases: Array = [text_id]
-	var packed_offset: int = text_id & 0x00FFFFFF
-	if packed_offset != text_id:
-		bases.append(packed_offset)
-	var best_dialogue: Dictionary = {}
-	var best_score: int = -1
-	for base_value in bases:
-		for delta_value in _dialogue_offset_deltas():
-			var candidate: int = int(base_value) + int(delta_value)
-			if not _valid_range(candidate, 1):
-				continue
-			var dialogue: Dictionary = _decode_rom_text(candidate)
-			if dialogue.is_empty():
-				continue
-			var score: int = 0
-			if candidate > 0 and int(rom_data[candidate - 1]) == 0xFF:
-				score += 100
-			if score > best_score:
-				best_dialogue = dialogue
-				best_score = score
-	return best_dialogue
+	if text_id == 0:
+		return {}
+	var offset: int = _gba_text_file_offset(text_id)
+	if not _valid_range(offset, 1):
+		return _dialogue_unavailable_stub(offset)
+	var dialogue: Dictionary = _decode_rom_text(offset)
+	if not dialogue.is_empty() and not _dialogue_pages_are_garbage(dialogue.get("pages", [])):
+		return dialogue
+	# Soft-fail instead of mid-string Rev1 delta hacks or ???? floods.
+	return _dialogue_unavailable_stub(offset)
 
-func _dialogue_offset_deltas() -> Array:
-	if str(source_profile.get("id", "")) == "pokemon-fire-red" and rom_sha1 == FIRE_RED_REV1_SHA1:
-		var deltas: Array = FIRE_RED_REV1_DIALOGUE_DELTAS.duplicate()
-		deltas.append(0)
-		return deltas
-	return [0]
+func _dialogue_unavailable_stub(text_offset: int) -> Dictionary:
+	var region: String = str(source_profile.get("region", "this"))
+	var game: String = str(source_profile.get("game", "ROM"))
+	return {"text_offset": text_offset, "raw": "", "pages": ["(%s / %s dialogue unavailable.)" % [region, game]], "stub": true}
+
+func _dialogue_candidate_score(text_offset: int, dialogue: Dictionary) -> int:
+	var score: int = 1
+	if text_offset > 0 and int(rom_data[text_offset - 1]) == 0xFF:
+		score += 100
+	elif text_offset > 0 and int(rom_data[text_offset - 1]) == 0xFB:
+		score += 40
+	var pages: Array = dialogue.get("pages", [])
+	var joined: String = ""
+	for page_value in pages:
+		joined += str(page_value)
+	score += mini(joined.length(), 120)
+	score -= int(dialogue.get("unknown_glyphs", 0)) * 3
+	return score
+
+func _dialogue_pages_are_garbage(pages: Array) -> bool:
+	if pages.is_empty():
+		return true
+	var joined: String = ""
+	for page_value in pages:
+		joined += str(page_value)
+	if joined.strip_edges().is_empty():
+		return true
+	var question_marks: int = joined.count("?")
+	if question_marks >= 8 and question_marks * 2 >= joined.length():
+		return true
+	if joined.count("{") >= 12:
+		return true
+	return false
 
 func _rom_text_control_argument_count(control: int) -> int:
+	# Match OpenMMO-Client gbaExtCtrlSkip / pret ext control sizes.
 	match control:
+		0x04:
+			return 3
 		0x06, 0x08, 0x11:
 			return 1
 		0x0B, 0x10:
 			return 2
-	return 0
+		0x07, 0x09, 0x0A, 0x15, 0x16, 0x17, 0x18:
+			return 0
+	return 1
 
 func _decode_rom_character(value: int) -> String:
 	if value == 0x00:
@@ -2870,7 +2932,7 @@ func _decode_rom_character(value: int) -> String:
 		return char(97 + value - 0xD5)
 	match value:
 		0x1B:
-			return "é"
+			return "Ac"
 		0xAB:
 			return "!"
 		0xAC:
@@ -2880,9 +2942,11 @@ func _decode_rom_character(value: int) -> String:
 		0xAE:
 			return "-"
 		0xB0:
-			return "…"
+			return "..."
 		0xB4:
 			return "'"
+		0xB6:
+			return "\""
 		0xB8:
 			return ","
 		0xBA:
