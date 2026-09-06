@@ -4,7 +4,7 @@ extends Node
 const REGION_OPTIONS: Array = [
 	{"region": "Unova", "title": "Black/White ROM", "enabled": false, "description": "Unavailable until Unova content is implemented."},
 	{"region": "Kanto", "title": "FireRed/LeafGreen ROM", "enabled": true, "description": "Accepts a compatible FireRed or LeafGreen base ROM, including graphics patches that preserve the source map layout."},
-	{"region": "Hoenn", "title": "Emerald ROM", "enabled": false, "description": "Unavailable until Hoenn content is implemented."},
+	{"region": "Hoenn", "title": "Ruby/Sapphire/Emerald ROM", "enabled": true, "description": "Accepts a compatible Ruby, Sapphire, or Emerald .gba ROM. Map layout rendering uses the ROM gMapGroups table; content stays local and is never uploaded."},
 	{"region": "Sinnoh", "title": "Platinum ROM", "enabled": false, "description": "Unavailable until Sinnoh content is implemented."},
 	{"region": "Followers", "title": "HeartGold/SoulSilver extracted source", "enabled": true, "mode": "followers", "description": "Optional desktop source for authentic directional follower sprites. Select the pokeheartgold source root or its extracted mmodel folder; Johto map content remains unavailable."}
 ]
@@ -74,7 +74,7 @@ func choose(parent: Node) -> void:
 		row.add_child(info_button)
 		box.add_child(row)
 	var note: Label = Label.new()
-	note.text = "Kanto accepts compatible FireRed or LeafGreen .gba ROMs. The optional follower source reads extracted HGSS models in place. Content stays local and is never uploaded."
+	note.text = "Kanto accepts FireRed/LeafGreen .gba ROMs. Hoenn accepts Ruby/Sapphire/Emerald .gba ROMs. The optional follower source reads extracted HGSS models in place. Content stays local and is never uploaded."
 	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	note.modulate = Color("b8c7d9")
 	box.add_child(note)
@@ -129,41 +129,59 @@ func _on_manager_exiting() -> void:
 func _on_native_file_selected(status: bool, selected_paths: PackedStringArray, _filter_index: int) -> void:
 	_native_dialog_open = false
 	var mode: String = str(_pending_option.get("mode", "rom"))
-	_pending_option = {}
 	if not status or selected_paths.is_empty():
+		_pending_option = {}
 		content_failed.emit("no follower folder was selected" if mode == "followers" else "no ROM was selected")
 		return
 	if mode == "followers":
+		_pending_option = {}
 		_on_follower_source_selected(selected_paths[0])
 	else:
 		_on_rom_selected(selected_paths[0])
+		_pending_option = {}
 
 func _on_rom_selected(path: String) -> void:
 	var extension: String = path.get_extension().to_lower()
 	if extension != "gba":
 		content_failed.emit("unsupported file; select a .gba ROM")
 		return
+	var expected_region: String = str(_pending_option.get("region", "")).strip_edges()
 	var result: Dictionary = OpenMMOContent.from_rom_path(path)
 	if bool(result.get("ok", false)):
 		var content: OpenMMOContent = result.get("content") as OpenMMOContent
+		var actual_region: String = str(content.source_profile.get("region", "")).strip_edges()
+		if not expected_region.is_empty() and not actual_region.is_empty() and expected_region.to_lower() != actual_region.to_lower():
+			content_failed.emit("That ROM is %s content; pick a %s ROM for this row." % [actual_region, expected_region])
+			if is_instance_valid(manager):
+				manager.popup_centered()
+			return
 		_attach_saved_follower_source(content)
-		_save_rom_path(path)
+		_save_rom_path(path, actual_region if not actual_region.is_empty() else expected_region)
 		_close_manager()
 		content_loaded.emit(content)
 	else:
 		content_failed.emit(str(result.get("error", "could not load content")))
+		if is_instance_valid(manager):
+			manager.popup_centered()
 
 func restore_saved_rom() -> bool:
 	var roms: Dictionary = OpenMMOStorage.read_json(OpenMMOStorage.SETTINGS_FILE).get("roms", {})
 	if not roms is Dictionary:
 		_clear_saved_rom()
 		return false
-	var path: String = str(roms.get("kanto", ""))
+	var path: String = ""
+	var region_key: String = ""
+	for key in ["hoenn", "kanto"]:
+		var candidate: String = str(roms.get(key, ""))
+		if not candidate.is_empty():
+			path = candidate
+			region_key = key
+			break
 	if path.is_empty():
 		return false
 	if not FileAccess.file_exists(path):
-		_clear_saved_rom()
-		content_failed.emit("The saved Kanto ROM was moved or removed; select it again.")
+		_clear_saved_rom_key(region_key)
+		content_failed.emit("The saved %s ROM was moved or removed; select it again." % region_key.capitalize())
 		return false
 	var result: Dictionary = OpenMMOContent.from_rom_path(path)
 	if bool(result.get("ok", false)):
@@ -171,13 +189,19 @@ func restore_saved_rom() -> bool:
 		_attach_saved_follower_source(content)
 		content_loaded.emit(content)
 		return true
-	content_failed.emit("The saved Kanto ROM is still selected but could not be decoded: %s" % str(result.get("error", "unknown content error")))
+	content_failed.emit("The saved %s ROM is still selected but could not be decoded: %s" % [region_key.capitalize(), str(result.get("error", "unknown content error"))])
 	return false
 
-func _save_rom_path(path: String) -> void:
+func _save_rom_path(path: String, region: String = "") -> void:
 	var settings: Dictionary = OpenMMOStorage.read_json(OpenMMOStorage.SETTINGS_FILE)
 	var roms: Dictionary = settings.get("roms", {})
-	roms["kanto"] = path
+	var key: String = region.strip_edges().to_lower()
+	if key.is_empty():
+		key = "kanto"
+	for wipe in ["kanto", "hoenn"]:
+		if wipe != key:
+			roms.erase(wipe)
+	roms[key] = path
 	settings["roms"] = roms
 	OpenMMOStorage.write_json(OpenMMOStorage.SETTINGS_FILE, settings)
 
@@ -224,9 +248,13 @@ func _clear_saved_follower_source() -> void:
 	OpenMMOStorage.write_json(OpenMMOStorage.SETTINGS_FILE, settings)
 
 func _clear_saved_rom() -> void:
+	_clear_saved_rom_key("kanto")
+	_clear_saved_rom_key("hoenn")
+
+func _clear_saved_rom_key(key: String) -> void:
 	var settings: Dictionary = OpenMMOStorage.read_json(OpenMMOStorage.SETTINGS_FILE)
 	var roms: Dictionary = settings.get("roms", {})
-	roms.erase("kanto")
+	roms.erase(key)
 	settings["roms"] = roms
 	OpenMMOStorage.write_json(OpenMMOStorage.SETTINGS_FILE, settings)
 

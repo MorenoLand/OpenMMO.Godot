@@ -12,7 +12,7 @@ static func from_header(header: Dictionary) -> Dictionary:
 		"BPEE":
 			return _emerald_profile()
 		"AXVE":
-			return _profile("pokemon-ruby", "Ruby", "Hoenn", false, -1)
+			return _ruby_profile()
 		"AXPE":
 			return _sapphire_profile()
 	return {}
@@ -46,6 +46,11 @@ static func _hoenn_base_profile(id: String, game: String, map_groups_offset: int
 static func _emerald_profile() -> Dictionary:
 	var profile: Dictionary = _hoenn_base_profile("pokemon-emerald", "Emerald", 0x486578)
 	profile["audio"] = {"song_table_offset": 0x4A3780, "anchor_song_ids": []}
+	return profile
+
+static func _ruby_profile() -> Dictionary:
+	# AXVE (USA): gMapGroups at 0x3085A0 (Sapphire rev2 table is 0x70 earlier at 0x308530).
+	var profile: Dictionary = _hoenn_base_profile("pokemon-ruby", "Ruby", 0x3085A0)
 	return profile
 
 static func _sapphire_profile() -> Dictionary:
