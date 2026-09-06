@@ -577,6 +577,11 @@ func _on_render_screen(visible: bool) -> void:
 			map_view.set_transition_active(true)
 			map_view.set_input_enabled(false)
 		_cover_screen_transition()
+		# If map prepare stalls (common on Hoenn indoor after truck), do not stay black forever.
+		var cover_generation: int = connected_world_generation
+		await get_tree().create_timer(2.5).timeout
+		if transition_reveal_pending and cover_generation == connected_world_generation:
+			_force_reveal_screen_transition()
 		return
 	if transition_reveal_pending:
 		transition_screen_ready = true
@@ -602,6 +607,14 @@ func _try_reveal_screen_transition() -> void:
 	if map_view != null:
 		map_view.set_transition_active(false)
 		map_view.set_input_enabled(true)
+
+func _force_reveal_screen_transition() -> void:
+	# Escape hatch for indoor Hoenn warps that never get map/screen ready.
+	if not transition_reveal_pending:
+		return
+	transition_map_ready = true
+	transition_screen_ready = true
+	_try_reveal_screen_transition()
 
 func _cover_screen_transition() -> void:
 	if transition_overlay == null:
@@ -819,12 +832,21 @@ func _on_dialog_action_received(action: Dictionary) -> void:
 	_update_dialogue_string_vars(action)
 	var text_id: int = int(action.get("text_id", 0))
 	var pages: Array = _streamed_dialogue_pages(action.get("detail", PackedByteArray()))
-	if pages.is_empty():
+	if pages.is_empty() and text_id != 0:
 		var rom_content: OpenMMOContent = GameState.content_for_text_id(text_id)
 		var dialogue: Dictionary = rom_content.dialogue_for_text_id(text_id) if rom_content != null else {}
 		pages = dialogue.get("pages", []) if not dialogue.is_empty() else []
-	if pages.is_empty():
-		pages = ["Dialogue text 0x%08X is unavailable in the selected ROM." % text_id]
+		if bool(dialogue.get("stub", false)):
+			var tag: int = (text_id >> 24) & 0xFF
+			var game: String = str(rom_content.source_profile.get("game", "ROM")) if rom_content != null else ""
+			if tag == 0x10 and game != "Emerald":
+				pages = ["Hoenn story text uses Emerald ROM offsets. Select Pokemon Emerald for readable dialogue (got %s)." % game]
+	if pages.is_empty() and text_id != 0:
+		var tag2: int = (text_id >> 24) & 0xFF
+		if tag2 == 0x10 and GameState.content_for_region("hoenn") == null:
+			pages = ["Hoenn dialogue 0x%08X needs a loaded Hoenn ROM (Emerald preferred)." % text_id]
+		else:
+			pages = ["Dialogue text 0x%08X is unavailable in the selected ROM." % text_id]
 	var preview_species: int = _dialogue_preview_species(action, pages)
 	pages = _resolve_dialogue_pages(pages)
 	var actor: Dictionary = {}

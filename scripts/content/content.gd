@@ -8,6 +8,8 @@ const SCHEMA_VERSION: int = 1
 const KANTO_GBA_CONTENT_ID: String = "kanto-gba-slice-v1"
 const FIRE_RED_REV1_SHA1: String = "dd5945db9b930750cb39d00c84da8571feebf417"
 const FIRE_RED_SHA1: String = "41cb23d8dccc8ebd7c649cd8fbb58eeace6e2fdc"
+# Server dialog tables use Rev0 file offsets; Rev1 strings are shifted by these deltas.
+const FIRE_RED_REV1_DIALOGUE_DELTAS: Array = [0x78, 0x73, 0x70]
 const ITEM_RECORD_SIZE: int = 44
 const ITEM_NAME_LENGTH: int = 14
 const ITEM_RECORD_ID_OFFSET: int = 14
@@ -2715,26 +2717,10 @@ func _walk_dialogue_for_script(script_offset: int) -> Dictionary:
 		var opcode: int = int(rom_data[cursor])
 		if opcode == 0x02 or opcode == 0x03:
 			break
-		var command_size: int = 1
-		match opcode:
-			0x04, 0x05:
-				command_size = 5
-			0x06, 0x07:
-				command_size = 6
-			0x08, 0x09, 0x0A, 0x0B:
-				command_size = 2
-			0x0F:
-				command_size = 6
-			0x4F:
-				command_size = 7
-			0x50:
-				command_size = 9
-			0x67:
-				command_size = 5
-			0x00, 0x01, 0x0C, 0x0D, 0x0E, 0x5A, 0x66, 0x68, 0x69, 0x6A, 0x6B, 0x6C, 0x6D:
-				command_size = 1
-			_:
-				return {}
+		var command_size: int = _script_command_size(opcode)
+		if command_size <= 0:
+			# Unknown opcode: stop walking so scored scan can recover nearby msgbox/loadword.
+			break
 		if cursor + command_size > limit:
 			return {}
 		if opcode == 0x0F and int(rom_data[cursor + 1]) == 0:
@@ -2756,8 +2742,35 @@ func _walk_dialogue_for_script(script_offset: int) -> Dictionary:
 				var standard_dialogue: Dictionary = _decode_rom_text(standard_message_offset)
 				if not standard_dialogue.is_empty():
 					return standard_dialogue
+		# loadword + following callstd (separate opcodes) — famechecker macros use this.
+		if opcode == 0x0F and int(rom_data[cursor + 1]) == 0 and data_slot_zero >= 0 and cursor + 6 <= limit:
+			var trailed_call: int = int(rom_data[cursor + 6]) if cursor + 6 < limit else -1
+			var trailed_id: int = int(rom_data[cursor + 7]) if cursor + 7 < limit else -1
+			if trailed_call == 0x09 and trailed_id >= 2 and trailed_id <= 6:
+				var trailed: Dictionary = _decode_rom_text(data_slot_zero)
+				if not trailed.is_empty():
+					return trailed
 		cursor += command_size
 	return {}
+
+func _script_command_size(opcode: int) -> int:
+	# Subset of pret firered/pokeemerald script command sizes used by signs/NPCs.
+	match opcode:
+		0x00, 0x01, 0x02, 0x03, 0x0C, 0x0D, 0x27, 0x30, 0x32, 0x35, 0x5A, 0x66, 0x68, 0x69, 0x6A, 0x6B, 0x6C, 0x6D:
+			return 1
+		0x08, 0x09, 0x0E, 0x2F, 0x31, 0x34, 0x36, 0x37, 0x38:
+			return 2
+		0x0A, 0x0B, 0x10, 0x25, 0x28, 0x29, 0x2A, 0x2B:
+			return 3
+		0x04, 0x05, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F, 0x20, 0x21, 0x22, 0x23, 0x24, 0x26, 0x67:
+			return 5
+		0x06, 0x07, 0x0F:
+			return 6
+		0x4F:
+			return 7
+		0x50:
+			return 9
+	return 0
 
 func _scan_dialogue_for_script(script_offset: int) -> Dictionary:
 	# Fallback only: never trust the first raw 0x67/0x0F byte hit (pointers can embed those bytes).
@@ -2865,14 +2878,33 @@ func _gba_text_file_offset(text_id: int) -> int:
 func dialogue_for_text_id(text_id: int) -> Dictionary:
 	if text_id == 0:
 		return {}
-	var offset: int = _gba_text_file_offset(text_id)
-	if not _valid_range(offset, 1):
-		return _dialogue_unavailable_stub(offset)
-	var dialogue: Dictionary = _decode_rom_text(offset)
-	if not dialogue.is_empty() and not _dialogue_pages_are_garbage(dialogue.get("pages", [])):
-		return dialogue
-	# Soft-fail instead of mid-string Rev1 delta hacks or ???? floods.
-	return _dialogue_unavailable_stub(offset)
+	var base_offset: int = _gba_text_file_offset(text_id)
+	var candidates: Array = [base_offset]
+	# OpenMMO server dialog enums are Rev0 file offsets. FireRed Rev1 shifts many
+	# Pallet strings by +0x78 (see OakPokemonResearchLab 0x17D866 -> 0x17D8DE).
+	if str(source_profile.get("id", "")) == "pokemon-fire-red" and rom_sha1 == FIRE_RED_REV1_SHA1:
+		for delta_value in FIRE_RED_REV1_DIALOGUE_DELTAS:
+			candidates.append(base_offset + int(delta_value))
+	var best_dialogue: Dictionary = {}
+	var best_score: int = -1
+	for candidate_value in candidates:
+		var candidate: int = int(candidate_value)
+		if not _valid_range(candidate, 1):
+			continue
+		var dialogue: Dictionary = _decode_rom_text(candidate)
+		if dialogue.is_empty() or _dialogue_pages_are_garbage(dialogue.get("pages", [])):
+			continue
+		var score: int = _dialogue_candidate_score(candidate, dialogue)
+		# Strongly prefer true string starts (prev 0xFF). Mid-page (0xFB) stays weak so
+		# Rev0 textIds on Rev1 ROMs do not keep truncated fragments like "t strong...".
+		if score > best_score:
+			best_dialogue = dialogue
+			best_score = score
+	if not best_dialogue.is_empty():
+		return best_dialogue
+	if _valid_range(base_offset, 1):
+		return _dialogue_unavailable_stub(base_offset)
+	return _dialogue_unavailable_stub(base_offset)
 
 func _dialogue_unavailable_stub(text_offset: int) -> Dictionary:
 	var region: String = str(source_profile.get("region", "this"))
@@ -2882,14 +2914,15 @@ func _dialogue_unavailable_stub(text_offset: int) -> Dictionary:
 func _dialogue_candidate_score(text_offset: int, dialogue: Dictionary) -> int:
 	var score: int = 1
 	if text_offset > 0 and int(rom_data[text_offset - 1]) == 0xFF:
-		score += 100
+		score += 1000
 	elif text_offset > 0 and int(rom_data[text_offset - 1]) == 0xFB:
-		score += 40
+		# Mid-page pointer — keep weaker than a real string start.
+		score += 10
 	var pages: Array = dialogue.get("pages", [])
 	var joined: String = ""
 	for page_value in pages:
 		joined += str(page_value)
-	score += mini(joined.length(), 120)
+	score += mini(joined.length(), 80)
 	score -= int(dialogue.get("unknown_glyphs", 0)) * 3
 	return score
 

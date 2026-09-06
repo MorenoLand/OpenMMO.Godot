@@ -178,12 +178,14 @@ func map_data_for_location(bank_id: int, map_id: int) -> Dictionary:
 	return chosen.map_data(local_id)
 
 func content_for_text_id(text_id: int) -> OpenMMOContent:
-	# 0x10xxxxxx = Emerald file-offset tag (OpenMMO-Client gba_text.h); prefer Hoenn ROM.
+	# 0x10xxxxxx = Emerald file-offset tag (OpenMMO-Client gba_text.h); never decode on Kanto.
 	var tag: int = (text_id >> 24) & 0xFF
 	if tag == 0x10:
 		var hoenn: OpenMMOContent = content_for_region("hoenn")
 		if hoenn != null:
 			return hoenn
+		# Do not fall back to Kanto — Emerald offsets on FireRed yield garbage/stubs.
+		return null
 	if content != null:
 		return content
 	return _preferred_content()
@@ -714,6 +716,8 @@ func _on_game_packet(opcode: int, payload: PackedByteArray) -> void:
 			local_map_id = "server-map-%s" % str(response.get("key", ""))
 		elif local_map_id.is_empty() or map_data_for_location(bank_id, map_id).is_empty():
 			connection_error.emit("No loaded ROM contains OpenMMO map %d/%d" % [bank_id, map_id])
+			# Clear covered warp fade so indoor Hoenn failures are not a permanent black screen.
+			render_screen_changed.emit(true)
 			return
 		response["local_map_id"] = local_map_id
 		server_maps[str(response.key)] = response
