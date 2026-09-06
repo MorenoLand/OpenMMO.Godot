@@ -1377,6 +1377,61 @@ func _update_player_texture() -> void:
 	player_texture = sprite.get("texture") as Texture2D
 	player_texture_key = texture_key if player_texture != null else ""
 
+func inspect_at_screen(screen_position: Vector2) -> Dictionary:
+	if regions.is_empty() or size.x <= 0.0 or size.y <= 0.0:
+		return {"ok": false}
+	var tile_scale: float = _tile_scale()
+	var camera_world_size: Vector2 = size / tile_scale
+	var world_player: Vector2 = _movement_world_position()
+	var camera_origin: Vector2 = _camera_origin(world_player, camera_world_size)
+	var destination_position: Vector2 = (size - camera_world_size * tile_scale) * 0.5
+	var world_pixels: Vector2 = (screen_position - destination_position) / tile_scale + camera_origin
+	var world_tile: Vector2i = Vector2i(floori(world_pixels.x / TILE_PIXELS), floori(world_pixels.y / TILE_PIXELS))
+	var hit_map_id: String = ""
+	var local_tile: Vector2i = world_tile
+	for region_value in regions:
+		if not region_value is Dictionary:
+			continue
+		var region: Dictionary = region_value
+		var origin: Vector2i = region.get("origin", Vector2i.ZERO)
+		var width: int = int(region.get("width", 0))
+		var height: int = int(region.get("height", 0))
+		if width <= 0 or height <= 0:
+			continue
+		if world_tile.x < origin.x or world_tile.y < origin.y or world_tile.x >= origin.x + width or world_tile.y >= origin.y + height:
+			continue
+		hit_map_id = str(region.get("map_id", ""))
+		local_tile = world_tile - origin
+		break
+	if hit_map_id.is_empty():
+		return {"ok": true, "world_tile": world_tile, "map_id": "", "local_tile": Vector2i.ZERO}
+	var cell: Dictionary = {}
+	var warp: Dictionary = {}
+	var door_ok: bool = false
+	if content != null:
+		cell = content.map_cell(hit_map_id, local_tile.x, local_tile.y)
+		warp = content.warp_at(hit_map_id, local_tile.x, local_tile.y, player_elevation)
+		door_ok = bool(content.door_animation_frame(hit_map_id, local_tile.x, local_tile.y, 1).get("ok", false))
+	var hit_objects: Array = []
+	for object_value in objects:
+		if not object_value is Dictionary:
+			continue
+		var object: Dictionary = object_value
+		var object_map: String = str(object.get("map_id", hit_map_id))
+		if object_map != hit_map_id and not str(object.get("map_id", "")).is_empty():
+			continue
+		if int(object.get("x", -1)) != local_tile.x or int(object.get("y", -1)) != local_tile.y:
+			continue
+		hit_objects.append({"kind": str(object.get("kind", "object")), "local_id": int(object.get("local_id", -1)), "graphics_id": int(object.get("graphics_id", -1)), "script_offset": int(object.get("script_offset", -1)), "dialogue_id": str(object.get("dialogue_id", "")), "movement_type": int(object.get("movement_type", -1)), "elevation": int(object.get("elevation", -1))})
+	for entity_value in world_entities:
+		if not entity_value is Dictionary:
+			continue
+		var entity: Dictionary = entity_value
+		if int(entity.get("x", -1)) != local_tile.x or int(entity.get("y", -1)) != local_tile.y:
+			continue
+		hit_objects.append({"kind": "npc" if bool(entity.get("npc", false)) else "entity", "entity_id": int(entity.get("entity_id", -1)), "graphics_id": int(entity.get("graphics_id", -1)), "facing": int(entity.get("facing", -1))})
+	return {"ok": true, "world_tile": world_tile, "map_id": hit_map_id, "local_tile": local_tile, "cell": cell, "warp": warp, "door_graphics": door_ok, "animated_door_behavior": content._is_animated_door_behavior(int(cell.get("behavior", -1))) if content != null else false, "hits": hit_objects}
+
 func _tile_scale() -> float:
 	var maximum_camera_size: Vector2 = Vector2(CAMERA_MAX_CELLS_X * TILE_PIXELS, CAMERA_MAX_CELLS_Y * TILE_PIXELS)
 	var reference_scale: float = minf(maxf(ceilf(maxf(REFERENCE_VIEWPORT_SIZE.x / maximum_camera_size.x, REFERENCE_VIEWPORT_SIZE.y / maximum_camera_size.y)), 1.0), MAX_TILE_SCALE)

@@ -68,11 +68,11 @@ func _build_ui() -> void:
 	box.add_theme_constant_override("separation", 8)
 	margin.add_child(box)
 	var title: Label = Label.new()
-	title.text = "ROM-backed Kanto map preview"
+	title.text = "ROM-backed map preview"
 	title.add_theme_font_size_override("font_size", 30)
 	box.add_child(title)
 	var subtitle: Label = Label.new()
-	subtitle.text = "Rendered directly from the selected FireRed ROM; no account or server connection is used."
+	subtitle.text = "Rendered directly from the selected GBA ROM; no account or server connection is used."
 	subtitle.modulate = Color("b8c7d9")
 	box.add_child(subtitle)
 	var metadata: Label = Label.new()

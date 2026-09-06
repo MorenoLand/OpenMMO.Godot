@@ -131,7 +131,7 @@ func _build_debug_panel() -> void:
 	debug_panel = PanelContainer.new()
 	debug_panel.name = "DebugPanel"
 	debug_panel.position = Vector2(24.0, 120.0)
-	debug_panel.custom_minimum_size = Vector2(340.0, 0.0)
+	debug_panel.custom_minimum_size = Vector2(420.0, 0.0)
 	debug_panel.z_index = 1000
 	debug_panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	var panel_style: StyleBoxFlat = StyleBoxFlat.new()
@@ -209,7 +209,51 @@ func _update_debug_panel(delta: float) -> void:
 		input_status = "on" if bool(map_view.input_enabled) else "off"
 	var server_location: String = "%s/%s" % [str(GameState.current_character.get("bank_id", "-")), str(GameState.current_character.get("map_id", "-"))]
 	var viewport_size: Vector2 = get_viewport_rect().size
-	debug_label.text = "FPS: %d\nFrame: %.1f ms\nMap: %s\nServer bank/map: %s\nPosition: %s\nElevation: %d  Facing: %d\nMovement: %s\nTarget: %s\nTransition: %s\nSpawn ready: %s\nInput: %s\nHeld: %s\nEntities: %d\nViewport: %d x %d" % [Engine.get_frames_per_second(), delta * 1000.0, map_id, server_location, position_text, elevation, facing, movement_status, target_text, transition_status, spawn_status, input_status, held_input if not held_input.is_empty() else "-", entities.size(), int(viewport_size.x), int(viewport_size.y)]
+	var hover_text: String = _debug_hover_text()
+	debug_label.text = "FPS: %d\nFrame: %.1f ms\nMap: %s\nServer bank/map: %s\nPosition: %s\nElevation: %d  Facing: %d\nMovement: %s\nTarget: %s\nTransition: %s\nSpawn ready: %s\nInput: %s\nHeld: %s\nEntities: %d\nViewport: %d x %d\n--- hover ---\n%s" % [Engine.get_frames_per_second(), delta * 1000.0, map_id, server_location, position_text, elevation, facing, movement_status, target_text, transition_status, spawn_status, input_status, held_input if not held_input.is_empty() else "-", entities.size(), int(viewport_size.x), int(viewport_size.y), hover_text]
+
+
+func _debug_hover_text() -> String:
+	if map_view == null or not map_view.has_method("inspect_at_screen"):
+		return "(no inspect)"
+	var local_mouse: Vector2 = map_view.get_local_mouse_position()
+	if local_mouse.x < 0.0 or local_mouse.y < 0.0 or local_mouse.x > map_view.size.x or local_mouse.y > map_view.size.y:
+		return "outside map view"
+	var info: Dictionary = map_view.inspect_at_screen(local_mouse)
+	if not bool(info.get("ok", false)):
+		return "n/a"
+	var hit_map: String = str(info.get("map_id", ""))
+	if hit_map.is_empty():
+		return "world %s (no map)" % str(info.get("world_tile", Vector2i.ZERO))
+	var local_tile: Vector2i = info.get("local_tile", Vector2i.ZERO)
+	var cell: Dictionary = info.get("cell", {})
+	var lines: PackedStringArray = PackedStringArray()
+	lines.append("%s @ %d,%d" % [hit_map, local_tile.x, local_tile.y])
+	lines.append("metatile %d  behavior 0x%02X" % [int(cell.get("metatile_id", -1)), int(cell.get("behavior", -1))])
+	lines.append("collision %d  elev %d  layer %d" % [int(cell.get("collision", -1)), int(cell.get("elevation", -1)), int(cell.get("layer_type", -1))])
+	var warp: Dictionary = info.get("warp", {})
+	if bool(warp.get("ok", false)):
+		lines.append("warp -> %s (%s,%s) id %s" % [str(warp.get("map_id", "?")), str(warp.get("x", "?")), str(warp.get("y", "?")), str(warp.get("warp_id", "?"))])
+	else:
+		lines.append("warp: none")
+	lines.append("door gfx: %s  anim-door bhv: %s" % ["yes" if bool(info.get("door_graphics", false)) else "no", "yes" if bool(info.get("animated_door_behavior", false)) else "no"])
+	var hits: Array = info.get("hits", [])
+	if hits.is_empty():
+		lines.append("obj/npc: none")
+	else:
+		for hit_value in hits:
+			if not hit_value is Dictionary:
+				continue
+			var hit: Dictionary = hit_value
+			var kind: String = str(hit.get("kind", "?"))
+			if kind == "object" or kind == "sign":
+				lines.append("%s local=%d gfx=%d script=0x%X" % [kind, int(hit.get("local_id", -1)), int(hit.get("graphics_id", -1)), int(hit.get("script_offset", -1))])
+				var dialogue_id: String = str(hit.get("dialogue_id", ""))
+				if not dialogue_id.is_empty():
+					lines.append("  dialogue %s" % dialogue_id)
+			else:
+				lines.append("%s id=%s gfx=%s" % [kind, str(hit.get("entity_id", hit.get("local_id", "?"))), str(hit.get("graphics_id", "?"))])
+	return "\n".join(lines)
 
 func _on_debug_title_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton:
@@ -868,9 +912,9 @@ func _dialogue_placeholder_values() -> Dictionary:
 		if profile_value is Dictionary:
 			var profile: Dictionary = profile_value
 			region_name = str(profile.get("region", region_name))
-			var source_name: String = str(profile.get("game", profile.get("name", ""))).to_lower()
-			if source_name.contains("leaf"):
-				version_name = "LeafGreen"
+			var source_game: String = str(profile.get("game", profile.get("name", ""))).strip_edges()
+			if not source_game.is_empty():
+				version_name = source_game
 	var vars: Dictionary = {}
 	var character_vars: Variant = GameState.current_character.get("string_vars", {})
 	if character_vars is Dictionary:

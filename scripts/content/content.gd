@@ -183,13 +183,9 @@ static func _manifest_for_profile(profile: Dictionary, rom_sha1: String) -> Dict
 	var towns_group: int = int(map_groups.get("towns_and_routes", MAP_GROUP_TOWNS_AND_ROUTES))
 	for map_index in range(map_names.size()):
 		var raw_name: String = map_names[map_index]
-		var map_id: String = "rom-map-%d-%d" % [towns_group, map_index]
-		if map_index == 0:
-			map_id = "pallet-town"
-		elif map_index == 1:
-			map_id = "viridian-city"
-		elif map_index == 19:
-			map_id = "route-1"
+		var map_id: String = _slugify_map_name(raw_name)
+		if map_id.is_empty():
+			map_id = "rom-map-%d-%d" % [towns_group, map_index]
 		maps.append({"id": map_id, "name": _pretty_map_name(raw_name), "map_group": towns_group, "map_index": map_index, "width": 0, "height": 0})
 	var extra_maps: Array = profile.get("extra_maps", [])
 	for extra_map in extra_maps:
@@ -197,12 +193,29 @@ static func _manifest_for_profile(profile: Dictionary, rom_sha1: String) -> Dict
 	return {"schema_version": SCHEMA_VERSION, "content_id": str(profile.get("content_id", "")), "source": {"profile_id": str(profile.get("id", "")), "game": source_game, "region": str(profile.get("region", "")), "revision": str(profile.get("revision", "")), "rom_sha1": rom_sha1}, "maps": maps}
 
 static func _pretty_map_name(raw_name: String) -> String:
-	var value: String = raw_name.replace("_", " ")
-	value = value.replace("PalletTown", "Pallet Town").replace("ViridianCity", "Viridian City").replace("PewterCity", "Pewter City").replace("CeruleanCity", "Cerulean City").replace("LavenderTown", "Lavender Town").replace("VermilionCity", "Vermilion City").replace("CeladonCity", "Celadon City").replace("FuchsiaCity", "Fuchsia City").replace("CinnabarIsland", "Cinnabar Island").replace("SaffronCity", "Saffron City").replace("IndigoPlateau", "Indigo Plateau")
-	if value.begins_with("Route"):
-		var route_value: String = value.trim_prefix("Route")
+	var value: String = _split_map_identifier(raw_name.replace("_", " "))
+	if value.begins_with("Route ") or value.begins_with("Route"):
+		var route_value: String = value.trim_prefix("Route").strip_edges()
 		value = "Route " + route_value
 	return value
+
+static func _slugify_map_name(raw_name: String) -> String:
+	return _split_map_identifier(raw_name.replace("_", " ")).to_lower().replace(" ", "-").replace("--", "-")
+
+static func _split_map_identifier(raw_name: String) -> String:
+	var value: String = ""
+	for index in raw_name.length():
+		var ch: String = raw_name.substr(index, 1)
+		var is_upper: bool = ch.to_upper() == ch and ch.to_lower() != ch
+		var is_digit: bool = ch >= "0" and ch <= "9"
+		if index > 0 and (is_upper or is_digit):
+			var prev: String = raw_name.substr(index - 1, 1)
+			var prev_is_digit: bool = prev >= "0" and prev <= "9"
+			var prev_is_space: bool = prev == " " or prev == "-"
+			if not prev_is_space and ((is_upper and not prev_is_digit) or (is_digit and not prev_is_digit)):
+				value += " "
+		value += ch
+	return value.strip_edges()
 
 func _map_name_from_descriptor(descriptor: Dictionary) -> String:
 	var section_id: int = int(descriptor.get("region_map_section_id", -1))
@@ -343,13 +356,13 @@ func _read_map_descriptor(map_value: Dictionary) -> Dictionary:
 		return {"ok": false, "error": "the selected ROM profile has no map group table"}
 	var group_table_offset: int = _read_rom_pointer(map_groups_offset + map_group * 4)
 	if group_table_offset < 0:
-		return {"ok": false, "error": "could not resolve the FireRed map group"}
+		return {"ok": false, "error": "could not resolve the ROM map group"}
 	var header_offset: int = _read_rom_pointer(group_table_offset + map_index * 4)
 	if header_offset < 0 or not _valid_range(header_offset, _format_int("map_header_size", MAP_HEADER_SIZE)):
-		return {"ok": false, "error": "could not resolve the FireRed map header"}
+		return {"ok": false, "error": "could not resolve the ROM map header"}
 	var layout_offset: int = _read_rom_pointer(header_offset)
 	if layout_offset < 0 or not _valid_range(layout_offset, 0x1C):
-		return {"ok": false, "error": "could not resolve the FireRed map layout"}
+		return {"ok": false, "error": "could not resolve the ROM map layout"}
 	var width: int = _read_u32(layout_offset)
 	var height: int = _read_u32(layout_offset + 4)
 	var map_offset: int = _read_rom_pointer(layout_offset + 12)
@@ -359,7 +372,7 @@ func _read_map_descriptor(map_value: Dictionary) -> Dictionary:
 	var border_width: int = int(rom_data[layout_offset + 24])
 	var border_height: int = int(rom_data[layout_offset + 25])
 	if width <= 0 or height <= 0 or width > 512 or height > 512:
-		return {"ok": false, "error": "FireRed map dimensions are invalid"}
+		return {"ok": false, "error": "ROM map dimensions are invalid"}
 	var floor_num: int = int(rom_data[header_offset + 0x1A])
 	if floor_num >= 0x80:
 		floor_num -= 0x100
@@ -2052,13 +2065,13 @@ func _build_map_cache(map_id: String, map_value: Dictionary, include_composite: 
 	var expected_width: int = int(map_value.get("width", 0))
 	var expected_height: int = int(map_value.get("height", 0))
 	if expected_width > 0 and expected_height > 0 and (width != expected_width or height != expected_height):
-		return {"ok": false, "error": "FireRed map layout dimensions do not match the selected map"}
+		return {"ok": false, "error": "ROM map layout dimensions do not match the selected map"}
 	var map_offset: int = int(descriptor.get("map_offset", -1))
 	var primary_offset: int = int(descriptor.get("primary_offset", -1))
 	var secondary_offset: int = int(descriptor.get("secondary_offset", -1))
 	var map_bytes: int = width * height * 2
 	if map_offset < 0 or not _valid_range(map_offset, map_bytes):
-		return {"ok": false, "error": "could not read the FireRed map cells"}
+		return {"ok": false, "error": "could not read the ROM map cells"}
 	var map_cells: PackedInt32Array = PackedInt32Array()
 	var metatile_id_mask: int = _format_int("map_grid_metatile_id_mask", MAPGRID_METATILE_ID_MASK)
 	var undefined_metatile: int = _format_int("map_grid_undefined", MAPGRID_UNDEFINED)
@@ -2073,7 +2086,7 @@ func _build_map_cache(map_id: String, map_value: Dictionary, include_composite: 
 	var primary: Dictionary = _read_tileset(primary_offset, _format_int("primary_tile_count", PRIMARY_TILE_COUNT), primary_metatile_count, _format_int("primary_palette_count", PRIMARY_PALETTE_COUNT), "primary")
 	var secondary: Dictionary = _read_tileset(secondary_offset, 0, maxi(max_secondary_metatile + 1, 1), _format_int("secondary_rom_palette_count", SECONDARY_ROM_PALETTE_COUNT), "secondary")
 	if primary.is_empty() or secondary.is_empty():
-		return {"ok": false, "error": "could not read the FireRed map tilesets"}
+		return {"ok": false, "error": "could not read the ROM map tilesets"}
 	primary["is_secondary"] = false
 	secondary["is_secondary"] = true
 	primary["animation_enabled"] = _tileset_animation_enabled(primary)
@@ -2294,7 +2307,9 @@ func movement_result(map_id: String, x: int, y: int, direction: int, elevation: 
 		return {"ok": false, "error": "blocked"}
 	var destination_warp: Dictionary = warp_at(map_id, destination.x, destination.y, elevation)
 	var has_warp: bool = bool(destination_warp.get("ok", false))
-	var has_door_warp: bool = has_warp and bool(door_animation_frame(map_id, destination.x, destination.y, 1).get("ok", false))
+	# Only outdoor-style animated doors play the open graphic. Indoor carpet /
+	# non-anim warps may share metatile IDs with the door graphics table.
+	var has_door_warp: bool = has_warp and _is_animated_door_behavior(destination_behavior) and bool(door_animation_frame(map_id, destination.x, destination.y, 1).get("ok", false))
 	return {"ok": true, "map_id": map_id, "x": destination.x, "y": destination.y, "from_x": x, "from_y": y, "jump": false, "stair": false, "door": has_door_warp, "warp": destination_warp if has_warp else {}, "elevation": int(destination_cell.get("elevation", elevation))}
 
 func interaction_at(map_id: String, x: int, y: int, direction: int, elevation: int = 3, visible_objects: Array = []) -> Dictionary:
@@ -2471,6 +2486,12 @@ func _jump_direction(behavior: int) -> int:
 
 func _is_surfable_behavior(behavior: int) -> bool:
 	return behavior == 0x10 or behavior == 0x11 or behavior == 0x12 or behavior == 0x13 or behavior == 0x15 or behavior == 0x1A or behavior == 0x1B or behavior >= 0x50 and behavior <= 0x53
+
+func _is_animated_door_behavior(behavior: int) -> bool:
+	# pret: MB_ANIMATED_DOOR. Carpet / arrow / hole warps must not use door gfx.
+	var format: Dictionary = source_profile.get("format", {})
+	var door_behaviors: Array = format.get("animated_door_behaviors", [0x69])
+	return door_behaviors.has(behavior)
 
 func _is_stair_warp_behavior(behavior: int) -> bool:
 	var format: Dictionary = source_profile.get("format", {})
@@ -3003,11 +3024,16 @@ func _read_tileset(offset: int, tile_count: int, metatile_count: int, palette_co
 	for palette_index in range(palette_count * 16):
 		palettes.append(_read_palette_color(palettes_offset + palette_index * 2))
 	var attributes: PackedInt32Array = PackedInt32Array()
-	var attributes_offset: int = _read_rom_pointer(offset + 20)
-	if attributes_offset < 0 or not _valid_range(attributes_offset, metatile_count * 4):
+	var attribute_pointer_offset: int = _format_int("metatile_attributes_pointer_offset", 20)
+	var attribute_bytes: int = _format_int("metatile_attribute_bytes", 4)
+	var attributes_offset: int = _read_rom_pointer(offset + attribute_pointer_offset)
+	if attributes_offset < 0 or attribute_bytes <= 0 or not _valid_range(attributes_offset, metatile_count * attribute_bytes):
 		return {}
 	for attribute_index in range(metatile_count):
-		attributes.append(_read_u32(attributes_offset + attribute_index * 4))
+		if attribute_bytes == 2:
+			attributes.append(_read_u16(attributes_offset + attribute_index * 2))
+		else:
+			attributes.append(_read_u32(attributes_offset + attribute_index * attribute_bytes))
 	var result: Dictionary = {"tiles": tiles, "metatiles": metatile_words, "palettes": palettes, "attributes": attributes, "tile_count": effective_tile_count, "animation_callback": _read_rom_pointer(offset + 16)}
 	tileset_cache[cache_key] = result
 	return result
