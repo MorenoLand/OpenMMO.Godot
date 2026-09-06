@@ -310,19 +310,21 @@ func _on_map_load(value: Dictionary) -> void:
 	var map_id: String = str(value.get("local_map_id", ""))
 	if map_id.is_empty():
 		status_label.text = "OpenMMO did not provide a renderable map"
+		_force_reveal_screen_transition()
 		return
 	await _wait_for_door_traversal()
-	while transition_reveal_pending and transition_overlay != null and not transition_overlay.visible:
+	var overlay_wait: int = 0
+	while transition_reveal_pending and transition_overlay != null and not transition_overlay.visible and overlay_wait < 60:
 		await get_tree().process_frame
+		overlay_wait += 1
 	snapshot = {"map_id": map_id, "server_map": value, "party": GameState.current_character.get("party", []), "money": int(GameState.current_character.get("money", 0)), "bag": GameState.current_character.get("bag", []), "players": []}
 	_retain_server_entities_for_map(map_id)
 	if hud != null:
 		hud.set_state(GameState.content, map_id, snapshot, snapshot.party)
 	if not await _load_map_texture(map_id, int(value.get("width", 0)), int(value.get("height", 0))):
-		# Always clear warp fade even when texture prep fails (Hoenn indoor black screen).
-		transition_map_ready = true
-		_try_reveal_screen_transition()
+		_force_reveal_screen_transition()
 		return
+	_apply_local_spawn_for_map(map_id)
 	map_view.set_input_enabled(true)
 	_sync_map_entities()
 	GameState.call_deferred("complete_map_load", str(value.get("key", "")))
@@ -349,7 +351,6 @@ func _load_map_texture(map_id: String, expected_width: int = 0, expected_height:
 		return false
 	if expected_width > 0 and expected_height > 0 and (int(result.get("width", 0)) != expected_width or int(result.get("height", 0)) != expected_height):
 		status_label.text = "The local ROM map dimensions do not match the OpenMMO map"
-		return false
 	map_has_animation = false
 	map_has_animation = not (result.get("animated_background_tiles", []) as Array).is_empty() or not (result.get("animated_foreground_tiles", []) as Array).is_empty()
 	_cache_story_objects(map_id, result.get("objects", []))
@@ -578,9 +579,8 @@ func _on_render_screen(visible: bool) -> void:
 			map_view.set_input_enabled(false)
 		_cover_screen_transition()
 		# If map prepare stalls (common on Hoenn indoor after truck), do not stay black forever.
-		var cover_generation: int = connected_world_generation
 		await get_tree().create_timer(2.5).timeout
-		if transition_reveal_pending and cover_generation == connected_world_generation:
+		if transition_reveal_pending:
 			_force_reveal_screen_transition()
 		return
 	if transition_reveal_pending:
@@ -597,8 +597,12 @@ func _on_render_screen(visible: bool) -> void:
 		hud.visible = true
 
 func _wait_for_door_traversal() -> void:
-	while map_view != null and bool(map_view.get("movement_active")) and bool(map_view.get("movement_door")):
+	var frames: int = 0
+	while map_view != null and bool(map_view.get("movement_active")) and bool(map_view.get("movement_door")) and frames < 45:
 		await get_tree().process_frame
+		frames += 1
+	if frames >= 45 and map_view != null:
+		map_view._reset_movement_state()
 
 func _try_reveal_screen_transition() -> void:
 	if not transition_reveal_pending or not transition_map_ready or not transition_screen_ready:
@@ -722,9 +726,36 @@ func _retain_server_entities_for_map(target_map_id: String) -> void:
 		if not value is Dictionary:
 			continue
 		var entity: Dictionary = value
-		if str(entity.get("map_id", "")) == target_map_id:
+		var is_local: bool = int(entity.get("character_id", 0)) == selected_character_id or int(entity.get("entity_id", 0)) == selected_character_id
+		if is_local:
+			entity["map_id"] = target_map_id
+			retained[key] = entity
+		elif str(entity.get("map_id", "")) == target_map_id:
 			retained[key] = entity
 	entities = retained
+
+func _apply_local_spawn_for_map(map_id: String) -> void:
+	if map_view == null or GameState.content == null or map_id.is_empty():
+		return
+	var map_value: Dictionary = GameState.content.map_data(map_id)
+	var width: int = int(map_value.get("width", 0))
+	var height: int = int(map_value.get("height", 0))
+	var x: int = int(GameState.current_character.get("x", -1))
+	var y: int = int(GameState.current_character.get("y", -1))
+	if width > 0 and height > 0 and (x < 0 or y < 0 or x >= width or y >= height):
+		var spawn: Dictionary = GameState.content.default_spawn(map_id)
+		if bool(spawn.get("ok", false)):
+			x = int(spawn.get("x", 0))
+			y = int(spawn.get("y", 0))
+		else:
+			x = int(width / 2)
+			y = int(height / 2)
+	var facing: int = int(GameState.current_character.get("facing", map_view.player_facing))
+	var elevation: int = int(GameState.current_character.get("elevation", map_view.player_elevation))
+	map_view.set_player_state(x, y, elevation, facing)
+	GameState.current_character["x"] = x
+	GameState.current_character["y"] = y
+	GameState.current_character["map_id"] = map_id
 
 func _cache_story_objects(map_id: String, values: Variant) -> void:
 	if map_id.is_empty() or not values is Array:

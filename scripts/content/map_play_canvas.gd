@@ -1576,7 +1576,7 @@ func _world_entity_render_position(entity: Dictionary) -> Vector2:
 
 func _draw() -> void:
 	draw_rect(Rect2(Vector2.ZERO, size), Color.BLACK, true)
-	if regions.is_empty() or (authoritative_state and not has_spawn):
+	if regions.is_empty():
 		return
 	var tile_scale: float = _tile_scale()
 	var camera_world_size: Vector2 = size / tile_scale
