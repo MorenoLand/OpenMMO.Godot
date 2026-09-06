@@ -30,6 +30,7 @@ var pokemon_preview_species_id: int = 0
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	clip_contents = false
 	set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 	offset_top = -170.0
 	offset_bottom = -28.0
@@ -40,14 +41,18 @@ func _ready() -> void:
 	margin.add_theme_constant_override("margin_top", 12)
 	margin.add_theme_constant_override("margin_right", 18)
 	margin.add_theme_constant_override("margin_bottom", 8)
+	margin.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	add_child(margin)
 	var box: VBoxContainer = VBoxContainer.new()
 	box.add_theme_constant_override("separation", 2)
+	box.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	margin.add_child(box)
 	text_label = Label.new()
 	text_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	text_label.clip_text = false
 	text_label.text_overrun_behavior = TextServer.OVERRUN_NO_TRIMMING
+	text_label.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	text_label.vertical_alignment = VERTICAL_ALIGNMENT_TOP
 	text_label.add_theme_font_size_override("font_size", 20)
 	text_label.custom_minimum_size = Vector2(0, 112)
 	box.add_child(text_label)
@@ -93,7 +98,9 @@ func _layout_panel() -> void:
 	var viewport_width: float = viewport_size.x
 	var viewport_height: float = viewport_size.y
 	var panel_height: float = _panel_height()
-	if actor_anchored and screen_anchor.x >= 0.0:
+	# Actor anchors are opt-in; if the bubble would cover the upper half, fall back to bottom box.
+	var use_actor_anchor: bool = actor_anchored and screen_anchor.x >= 0.0 and screen_anchor.y >= viewport_height * 0.45
+	if use_actor_anchor:
 		var panel_width: float = minf(PANEL_WIDTH, maxf(viewport_width - 24.0, 240.0))
 		var left: float = clampf(screen_anchor.x - panel_width * 0.5, 12.0, maxf(viewport_width - panel_width - 12.0, 12.0))
 		var top: float = screen_anchor.y - panel_height - 12.0

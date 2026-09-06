@@ -783,10 +783,12 @@ func _on_interaction_requested(dialogue: Dictionary) -> void:
 		pages = [str(dialogue.get("text", ""))]
 	pages = _resolve_dialogue_pages(pages)
 	var choices: Array = dialogue.get("choices", [])
+	# Bottom message box (FR/PokeMMO style); actor-anchored panels were huge and clipped short pages.
+	var dialogue_anchor: Vector2 = Vector2(-1.0, -1.0)
 	if choices.is_empty():
-		dialogue_overlay.show_pages(pages, false, map_view.dialogue_anchor_screen(dialogue))
+		dialogue_overlay.show_pages(pages, false, dialogue_anchor)
 	else:
-		dialogue_overlay.show_choice(pages, choices, false, map_view.dialogue_anchor_screen(dialogue))
+		dialogue_overlay.show_choice(pages, choices, false, dialogue_anchor)
 	map_view.set_dialogue_active(true)
 	audio.play_effect("dialogue")
 
@@ -825,7 +827,8 @@ func _on_dialog_action_received(action: Dictionary) -> void:
 	server_dialogue_active = true
 	server_dialogue_sequence = int(action.get("flags", 0)) & 0xFF
 	map_view.set_dialogue_active(true)
-	var anchor: Vector2 = map_view.dialogue_anchor_screen({"object": actor})
+	# Keep the classic bottom textbox; actor anchoring left a tall empty panel over the map.
+	var anchor: Vector2 = Vector2(-1.0, -1.0)
 	var choices: Array = _server_dialogue_choices(action_type, server_dialogue_detail)
 	if choices.is_empty():
 		dialogue_overlay.show_pages(pages, false, anchor)
