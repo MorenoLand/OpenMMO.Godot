@@ -308,14 +308,31 @@ func _populate_fire_red_object_sprites(object_sprites: Dictionary) -> void:
 			continue
 		var expected_bytes: int = width * height / 2
 		var inanimate: bool = (_read_rom_u16(structure_offset + 0x0C) & 0x40) != 0
-		var max_frames: int = 1 if inanimate else 9
 		var first_data_offset: int = -1
 		var frame_count: int = 0
-		for frame in range(max_frames):
+		var frame_bytes: int = expected_bytes
+		var display_width: int = width
+		var display_height: int = height
+		var mixed_sizes: bool = false
+		var walk_limit: int = 1 if inanimate else 9
+		for frame in range(12):
 			var frame_offset: int = images_offset + frame * 8
 			var data_offset: int = _read_rom_pointer(frame_offset)
 			var frame_size: int = _read_rom_u16(frame_offset + 4)
-			if data_offset < 0 or frame_size != expected_bytes or not _valid_range(data_offset, frame_size):
+			if data_offset < 0 or frame_size <= 0 or not _valid_range(data_offset, frame_size):
+				break
+			if frame_size != expected_bytes:
+				mixed_sizes = true
+			if inanimate or mixed_sizes:
+				if frame_size >= frame_bytes:
+					first_data_offset = data_offset
+					frame_bytes = frame_size
+					if width > 0 and (frame_size * 2) % width == 0:
+						display_width = width
+						display_height = int((frame_size * 2) / width)
+				frame_count = 1
+				continue
+			if frame >= walk_limit:
 				break
 			if frame > 0:
 				var previous_data_offset: int = _read_rom_pointer(frame_offset - 8)
@@ -325,7 +342,7 @@ func _populate_fire_red_object_sprites(object_sprites: Dictionary) -> void:
 			if frame == 0:
 				first_data_offset = data_offset
 			frame_count += 1
-		if frame_count <= 0:
+		if frame_count <= 0 or first_data_offset < 0:
 			continue
 		var palette_tag: int = _read_rom_u16(structure_offset + 2)
 		var palette_offset: int = -1
@@ -343,7 +360,7 @@ func _populate_fire_red_object_sprites(object_sprites: Dictionary) -> void:
 			# FireRed town-map: PNG 32x16, gbagfx -mwidth 2 -mheight 2 stores two 16x16 blocks as 16x32; OAM shows 32x16.
 			var storage_width: int = 16 if width == 32 and height == 16 else width
 			var storage_height: int = 32 if width == 32 and height == 16 else height
-			object_sprites[entry] = {"data_offset": first_data_offset, "width": width, "height": height, "storage_width": storage_width, "storage_height": storage_height, "frame_bytes": expected_bytes, "frame_count": frame_count, "palette_offset": palette_offset, "inanimate": inanimate}
+			object_sprites[entry] = {"data_offset": first_data_offset, "width": display_width, "height": display_height, "storage_width": storage_width if display_width == width else display_width, "storage_height": storage_height if display_height == height else display_height, "frame_bytes": frame_bytes, "frame_count": frame_count, "palette_offset": palette_offset, "inanimate": inanimate or mixed_sizes}
 
 func _hydrate_manifest() -> void:
 	var maps: Array = manifest.get("maps", [])
