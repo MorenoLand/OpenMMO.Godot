@@ -24,3 +24,8 @@ assets-extracted/
 user://
 .DS_Store
 Thumbs.db
+
+# crash / tool noise
+*.log
+hs_err_pid*.log
+
