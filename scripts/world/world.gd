@@ -88,6 +88,7 @@ func _build_ui() -> void:
 	hud = HUD_SCRIPT.new()
 	hud.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	hud.follow_requested.connect(_on_follow_requested)
+	hud.wall_clock_confirmed.connect(_on_wall_clock_confirmed)
 	hud.shop_buy_requested.connect(_on_shop_buy_requested)
 	hud.shop_sell_requested.connect(_on_shop_sell_requested)
 	hud.shop_closed.connect(_on_shop_closed)
@@ -855,8 +856,21 @@ func _on_dialog_action_received(action: Dictionary) -> void:
 		server_dialogue_detail = PackedByteArray()
 		trainer_battle_dialogue_pending = false
 		dialogue_overlay.close_dialogue()
+		if hud != null:
+			hud.hide_wall_clock()
 		map_view.set_dialogue_active(false)
 		map_view.restore_interaction_facing()
+		return
+	if action_type == 0x24:
+		server_dialogue_action_type = action_type
+		server_dialogue_sequence = int(action.get("flags", 0)) & 0xFF
+		server_dialogue_active = true
+		if dialogue_overlay != null:
+			dialogue_overlay.close_dialogue()
+		map_view.set_dialogue_active(true)
+		map_view.set_input_enabled(false)
+		if hud != null:
+			hud.show_wall_clock()
 		return
 	server_dialogue_action_type = action_type
 	server_dialogue_detail = action.get("detail", PackedByteArray()) if action.get("detail", PackedByteArray()) is PackedByteArray else PackedByteArray()
@@ -1096,6 +1110,15 @@ func _on_dialogue_action() -> void:
 		map_view.set_dialogue_active(false)
 		map_view.restore_interaction_facing()
 
+func _on_wall_clock_confirmed(hour: int, minute: int) -> void:
+	var packed: int = (hour % 24) * 6 + int(minute / 10) % 6
+	if GameState.send_dialogue_action_response(server_dialogue_sequence, packed):
+		server_dialogue_active = false
+		if map_view != null:
+			map_view.set_dialogue_active(false)
+			map_view.set_input_enabled(true)
+			map_view.restore_interaction_facing()
+
 func _on_dialogue_choice(value: int) -> void:
 	audio.play_effect("dialogue")
 	if server_dialogue_active:
@@ -1124,6 +1147,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	if not event is InputEventKey:
 		return
 	var key_event: InputEventKey = event as InputEventKey
+	if hud != null and hud.clock_open and hud.handle_wall_clock_input(key_event):
+		get_viewport().set_input_as_handled()
+		return
 	if key_event.keycode == KEY_F3 and key_event.pressed and not key_event.echo:
 		_toggle_debug_panel()
 		get_viewport().set_input_as_handled()

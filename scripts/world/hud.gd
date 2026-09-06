@@ -5,6 +5,7 @@ signal follow_requested(party_index: int)
 signal shop_buy_requested(item_id: int, quantity: int, exchange_type_index: int)
 signal shop_sell_requested(item_entity_id: int, quantity: int)
 signal shop_closed
+signal wall_clock_confirmed(hour: int, minute: int)
 
 const PARTY_COUNT: int = 6
 var location_label: Label
@@ -45,6 +46,14 @@ var shop_confirm_button: Button
 var shop_catalog: Dictionary = {}
 var shop_mode: String = "buy"
 var shop_open: bool = false
+var clock_overlay: ColorRect
+var clock_time_label: Label
+var clock_period_label: Label
+var clock_hour_hand: Line2D
+var clock_minute_hand: Line2D
+var clock_open: bool = false
+var clock_hour: int = 10
+var clock_minute: int = 0
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_PASS
@@ -274,7 +283,141 @@ func _build_ui() -> void:
 	var shop_close: Button = _make_button("Close")
 	shop_close.pressed.connect(_close_shop)
 	shop_actions.add_child(shop_close)
+	_build_wall_clock()
 	_refresh_panels()
+
+func _build_wall_clock() -> void:
+	clock_overlay = ColorRect.new()
+	clock_overlay.color = Color(0.0, 0.0, 0.0, 0.72)
+	clock_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	clock_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	clock_overlay.visible = false
+	clock_overlay.z_index = 30
+	add_child(clock_overlay)
+	var panel: PanelContainer = PanelContainer.new()
+	panel.set_anchors_preset(Control.PRESET_CENTER)
+	panel.offset_left = -160.0
+	panel.offset_top = -210.0
+	panel.offset_right = 160.0
+	panel.offset_bottom = 210.0
+	panel.add_theme_stylebox_override("panel", _panel_style(Color("1b1a16f2"), Color("c9b48a"), 12, 2))
+	clock_overlay.add_child(panel)
+	var box: VBoxContainer = VBoxContainer.new()
+	box.add_theme_constant_override("separation", 10)
+	panel.add_child(box)
+	var title: Label = Label.new()
+	title.text = "Set the clock"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 18)
+	title.add_theme_color_override("font_color", Color("f4ead2"))
+	box.add_child(title)
+	var face_wrap: Control = Control.new()
+	face_wrap.custom_minimum_size = Vector2(200.0, 200.0)
+	face_wrap.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	box.add_child(face_wrap)
+	var face: Panel = Panel.new()
+	face.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var face_style: StyleBoxFlat = StyleBoxFlat.new()
+	face_style.bg_color = Color("e8d9b0")
+	face_style.border_color = Color("6b542e")
+	face_style.set_border_width_all(6)
+	face_style.set_corner_radius_all(100)
+	face.add_theme_stylebox_override("panel", face_style)
+	face_wrap.add_child(face)
+	clock_hour_hand = Line2D.new()
+	clock_hour_hand.width = 5.0
+	clock_hour_hand.default_color = Color("2b2418")
+	face_wrap.add_child(clock_hour_hand)
+	clock_minute_hand = Line2D.new()
+	clock_minute_hand.width = 3.0
+	clock_minute_hand.default_color = Color("5a3a18")
+	face_wrap.add_child(clock_minute_hand)
+	clock_time_label = Label.new()
+	clock_time_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	clock_time_label.add_theme_font_size_override("font_size", 28)
+	clock_time_label.add_theme_color_override("font_color", Color("f4ead2"))
+	box.add_child(clock_time_label)
+	clock_period_label = Label.new()
+	clock_period_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	clock_period_label.add_theme_font_size_override("font_size", 16)
+	clock_period_label.add_theme_color_override("font_color", Color("d2c093"))
+	box.add_child(clock_period_label)
+	var row: HBoxContainer = HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 6)
+	box.add_child(row)
+	for spec in [["-1h", -60], ["-10m", -10], ["+10m", 10], ["+1h", 60]]:
+		var button: Button = _make_button(str(spec[0]))
+		button.custom_minimum_size = Vector2(64.0, 36.0)
+		button.pressed.connect(_adjust_wall_clock.bind(int(spec[1])))
+		row.add_child(button)
+	var set_button: Button = _make_button("Set the clock")
+	set_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	set_button.pressed.connect(_confirm_wall_clock)
+	box.add_child(set_button)
+
+func show_wall_clock() -> void:
+	clock_hour = 10
+	clock_minute = 0
+	if GameState.game_clock_minutes >= 0:
+		clock_hour = int(GameState.game_clock_minutes / 60) % 24
+		clock_minute = int(GameState.game_clock_minutes % 60)
+		clock_minute = int(clock_minute / 10) * 10
+	clock_open = true
+	clock_overlay.visible = true
+	_refresh_wall_clock()
+
+func hide_wall_clock() -> void:
+	clock_open = false
+	if clock_overlay != null:
+		clock_overlay.visible = false
+
+func _adjust_wall_clock(delta_minutes: int) -> void:
+	var total: int = posmod(clock_hour * 60 + clock_minute + delta_minutes, 24 * 60)
+	clock_hour = int(total / 60)
+	clock_minute = total % 60
+	_refresh_wall_clock()
+
+func _refresh_wall_clock() -> void:
+	if clock_time_label == null:
+		return
+	var hour12: int = clock_hour % 12
+	if hour12 == 0:
+		hour12 = 12
+	clock_time_label.text = "%d:%02d" % [hour12, clock_minute]
+	clock_period_label.text = "AM" if clock_hour < 12 else "PM"
+	var center: Vector2 = Vector2(100.0, 100.0)
+	var minute_angle: float = deg_to_rad(-90.0 + clock_minute * 6.0)
+	var hour_angle: float = deg_to_rad(-90.0 + (clock_hour % 12) * 30.0 + clock_minute * 0.5)
+	clock_minute_hand.points = PackedVector2Array([center, center + Vector2(cos(minute_angle), sin(minute_angle)) * 78.0])
+	clock_hour_hand.points = PackedVector2Array([center, center + Vector2(cos(hour_angle), sin(hour_angle)) * 50.0])
+
+func _confirm_wall_clock() -> void:
+	GameState.game_clock_minutes = clock_hour * 60 + clock_minute
+	GameState.game_clock_set_msec = Time.get_ticks_msec()
+	hide_wall_clock()
+	wall_clock_confirmed.emit(clock_hour, clock_minute)
+	_refresh_time()
+
+func handle_wall_clock_input(event: InputEventKey) -> bool:
+	if not clock_open or not event.pressed or event.echo:
+		return false
+	match event.keycode:
+		KEY_LEFT:
+			_adjust_wall_clock(-10)
+		KEY_RIGHT:
+			_adjust_wall_clock(10)
+		KEY_UP:
+			_adjust_wall_clock(60)
+		KEY_DOWN:
+			_adjust_wall_clock(-60)
+		KEY_ENTER, KEY_KP_ENTER, KEY_Z, KEY_SPACE:
+			_confirm_wall_clock()
+		KEY_ESCAPE:
+			_confirm_wall_clock()
+		_:
+			return false
+	return true
 
 func _make_button(text_value: String) -> Button:
 	var button: Button = Button.new()
@@ -575,7 +718,14 @@ func _refresh_time() -> void:
 	var now: Dictionary = Time.get_datetime_dict_from_system()
 	var weekdays: Array = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
 	var weekday: String = str(weekdays[clampi(int(now.get("weekday", 0)), 0, weekdays.size() - 1)])
-	time_label.text = "%s, %02d:%02d" % [weekday, int(now.get("hour", 0)), int(now.get("minute", 0))]
+	var hour: int = int(now.get("hour", 0))
+	var minute: int = int(now.get("minute", 0))
+	if GameState.game_clock_minutes >= 0:
+		var elapsed_min: int = int((Time.get_ticks_msec() - GameState.game_clock_set_msec) / 60000.0)
+		var total: int = posmod(GameState.game_clock_minutes + elapsed_min, 24 * 60)
+		hour = int(total / 60)
+		minute = total % 60
+	time_label.text = "%s, %02d:%02d" % [weekday, hour, minute]
 
 func _on_party_slot_gui_input(event: InputEvent, party_index: int) -> void:
 	if not event is InputEventMouseButton:
