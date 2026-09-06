@@ -42,6 +42,7 @@ var movement_unvalidated: bool = false
 var movement_start: Vector2 = Vector2.ZERO
 var movement_target: Vector2 = Vector2.ZERO
 var movement_jump: bool = false
+var exclaim_timer: float = 0.0
 var movement_stair: bool = false
 var movement_stair_behavior: int = 0
 var movement_door: bool = false
