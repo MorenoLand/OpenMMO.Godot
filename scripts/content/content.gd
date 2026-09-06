@@ -223,7 +223,7 @@ func _map_name_from_descriptor(descriptor: Dictionary) -> String:
 	var section_names: Array = source_profile.get("region_map_section_names", [])
 	if section_start < 0 or section_id < section_start or section_id - section_start >= section_names.size():
 		return ""
-	var name: String = str(section_names[section_id - section_start])
+	var name: String = str(section_names[section_id - section_start]).strip_edges()
 	if name.is_empty():
 		return ""
 	var floor_num: int = int(descriptor.get("floor_num", 0))
@@ -232,6 +232,20 @@ func _map_name_from_descriptor(descriptor: Dictionary) -> String:
 	if floor_num == FLOOR_ROOFTOP:
 		return "%s Rooftop" % name
 	return "%s %s%dF" % [name, "B" if floor_num < 0 else "", absi(floor_num)]
+
+func _fallback_map_name(map_group: int, map_index: int, map_type: int, section_id: int) -> String:
+	for map_value in manifest.get("maps", []):
+		if map_value is Dictionary and int(map_value.get("map_group", -1)) == map_group and int(map_value.get("map_index", -1)) == map_index:
+			var listed: String = str(map_value.get("name", "")).strip_edges()
+			if not listed.is_empty() and listed != "Unlisted area" and not listed.begins_with("ROM map"):
+				return listed
+	if map_type == MAP_TYPE_INSIDE or map_type == MAP_TYPE_SECRET_BASE:
+		if section_id >= 0:
+			return "Indoor area"
+		return "Indoor map"
+	if map_group >= 0 and map_index >= 0:
+		return "Map %d-%d" % [map_group, map_index]
+	return "Unknown area"
 
 func _format_int(key: String, fallback: int) -> int:
 	var format: Dictionary = source_profile.get("format", {})
@@ -336,7 +350,8 @@ func _hydrate_manifest() -> void:
 			map_value["music_id"] = int(descriptor.get("music_id", 0))
 			map_value["map_type"] = int(descriptor.get("map_type", 0))
 			var source_name: String = _map_name_from_descriptor(descriptor)
-			if not source_name.is_empty() and str(map_value.get("name", "")).begins_with("ROM map "):
+			var current_name: String = str(map_value.get("name", "")).strip_edges()
+			if not source_name.is_empty() and (current_name.begins_with("ROM map ") or current_name.is_empty() or current_name == "Unlisted area"):
 				map_value["name"] = source_name
 		maps[map_index] = map_value
 	manifest["maps"] = maps
@@ -1311,7 +1326,7 @@ func map_data(map_id: String) -> Dictionary:
 		if bool(descriptor.get("ok", false)):
 			var name: String = _map_name_from_descriptor(descriptor)
 			if name.is_empty():
-				name = "Unlisted area"
+				name = _fallback_map_name(int(reference.get("map_group", -1)), int(reference.get("map_index", -1)), int(descriptor.get("map_type", 0)), int(descriptor.get("region_map_section_id", -1)))
 			return {"id": map_id, "name": name, "map_group": int(reference.get("map_group", -1)), "map_index": int(reference.get("map_index", -1)), "width": int(descriptor.get("width", 0)), "height": int(descriptor.get("height", 0)), "music_id": int(descriptor.get("music_id", 0)), "map_type": int(descriptor.get("map_type", 0)), "region_map_section_id": int(descriptor.get("region_map_section_id", -1)), "floor_num": int(descriptor.get("floor_num", 0))}
 	return {}
 
@@ -2103,7 +2118,9 @@ func _build_map_cache(map_id: String, map_value: Dictionary, include_composite: 
 	if border_width > 0 and border_height > 0 and border_offset >= 0 and _valid_range(border_offset, border_bytes):
 		for border_index in range(border_width * border_height):
 			border_tiles.append(_read_u16(border_offset + border_index * 2))
-	var render_border: bool = connections.is_empty() and not border_tiles.is_empty()
+	var map_type: int = int(descriptor.get("map_type", 0))
+	# Indoor/truck maps keep a black void; border metatile wrap bleeds trees/siding into camera space.
+	var render_border: bool = connections.is_empty() and not border_tiles.is_empty() and map_type != MAP_TYPE_INSIDE and map_type != MAP_TYPE_SECRET_BASE
 	var map_render_offset: int = _format_int("map_render_offset", 7) if render_border else 0
 	var render_origin: Vector2i = Vector2i(-map_render_offset, -map_render_offset)
 	var render_width: int = width + map_render_offset * 2 + (1 if render_border else 0)
@@ -2137,7 +2154,7 @@ func _build_map_cache(map_id: String, map_value: Dictionary, include_composite: 
 			_draw_map_metatile_layers(background_image, foreground_image, render_x * 16, render_y * 16, tileset, metatile_index, primary, secondary, animated_background_tiles, animated_foreground_tiles)
 	var objects: Array = _read_map_objects(header_offset, map_id)
 	objects.append_array(_read_map_background_events(header_offset, map_id))
-	return {"ok": true, "base_image": image, "base_background_image": background_image, "base_foreground_image": foreground_image, "primary": primary, "secondary": secondary, "primary_tiles": primary.get("tiles", PackedByteArray()), "primary_animation_enabled": bool(primary.get("animation_enabled", false)), "animated_tiles": animated_tiles, "animated_background_tiles": animated_background_tiles, "animated_foreground_tiles": animated_foreground_tiles, "map_cells": map_cells, "objects": objects, "warps": _read_map_warps(header_offset), "connections": connections, "textures": {}, "images": {}, "background_textures": {}, "foreground_textures": {}, "width": width, "height": height, "render_origin": render_origin, "render_width": render_width, "render_height": render_height, "header_offset": header_offset, "layout_offset": layout_offset, "border_offset": border_offset, "border_width": border_width, "border_height": border_height, "border_tiles": border_tiles, "map_group": int(map_value.get("map_group", -1)), "map_index": int(map_value.get("map_index", -1)), "music_id": int(map_value.get("music_id", 0))}
+	return {"ok": true, "base_image": image, "base_background_image": background_image, "base_foreground_image": foreground_image, "primary": primary, "secondary": secondary, "primary_tiles": primary.get("tiles", PackedByteArray()), "primary_animation_enabled": bool(primary.get("animation_enabled", false)), "animated_tiles": animated_tiles, "animated_background_tiles": animated_background_tiles, "animated_foreground_tiles": animated_foreground_tiles, "map_cells": map_cells, "objects": objects, "warps": _read_map_warps(header_offset), "connections": connections, "textures": {}, "images": {}, "background_textures": {}, "foreground_textures": {}, "width": width, "height": height, "render_origin": render_origin, "render_width": render_width, "render_height": render_height, "header_offset": header_offset, "layout_offset": layout_offset, "border_offset": border_offset, "border_width": border_width, "border_height": border_height, "border_tiles": border_tiles, "map_group": int(map_value.get("map_group", -1)), "map_index": int(map_value.get("map_index", -1)), "music_id": int(map_value.get("music_id", 0)), "map_type": map_type}
 
 func _render_map_word(map_cells: PackedInt32Array, width: int, height: int, map_x: int, map_y: int, border_tiles: PackedInt32Array, border_width: int, border_height: int) -> int:
 	if map_x >= 0 and map_y >= 0 and map_x < width and map_y < height:

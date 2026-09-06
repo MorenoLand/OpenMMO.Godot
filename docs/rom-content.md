@@ -15,3 +15,7 @@ Online sessions receive authoritative map and player state from OpenMMO game pac
 No ROM, extracted asset, generated map, or derived content file belongs in this repository. Optional extraction stages must keep their output outside Git and remain independent of the network protocol.
 
 The offline tester exposes the Kanto towns, routes, Viridian Forest, and selected Pallet Town and Viridian City interiors. Preview renders the selected map directly from the local ROM. Play loads that same decoded map into the interactive map scene with temporary character sprites, ROM object events, collision, ledges, warps, and map connections. The tester does not require an account or server connection.
+
+
+Hoenn Emerald/Ruby/Sapphire profiles now include MAPSEC region_map_section_names (start 0) so HUD location labels resolve (e.g. Inside of Truck, Littleroot Town) instead of Unlisted area. Indoor/truck maps no longer expand border metatiles into the camera void.
+
