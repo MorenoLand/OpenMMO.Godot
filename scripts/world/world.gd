@@ -526,6 +526,8 @@ func _on_entity_update(value: Dictionary) -> void:
 		if existing is Dictionary:
 			merged = (existing as Dictionary).duplicate(true)
 		merged.merge(entity, true)
+		if bool(merged.get("npc", false)):
+			_attach_hide_flag(merged)
 		entities[key] = merged
 		if is_local and map_view != null:
 			var entity_map_id: String = str(entity.get("map_id", ""))
@@ -689,6 +691,8 @@ func _on_character_state_changed(value: Dictionary) -> void:
 
 func _on_story_state_changed(_value: Dictionary) -> void:
 	_sync_map_entities()
+	if map_view != null:
+		map_view.queue_redraw()
 
 func _on_story_state_resynced(_value: Dictionary) -> void:
 	removed_npc_entities.clear()
@@ -772,14 +776,38 @@ func _cache_story_objects(map_id: String, values: Variant) -> void:
 		entries.append({"x": int(object.get("x", 0)), "y": int(object.get("y", 0)), "hide_flag_id": hide_flag_id})
 	story_objects_by_map[map_id] = entries
 
-func _story_hides_entity(entity: Dictionary) -> bool:
-	if not bool(entity.get("npc", false)) or bool(entity.get("story_cutscene_spawn", false)):
-		return false
+func _attach_hide_flag(entity: Dictionary) -> void:
+	if int(entity.get("hide_flag_id", 0)) > 0:
+		return
 	var map_id: String = str(entity.get("map_id", ""))
 	var objects_value: Variant = story_objects_by_map.get(map_id, [])
 	if not objects_value is Array:
+		return
+	var entity_x: int = int(entity.get("spawn_x", entity.get("x", -1)))
+	var entity_y: int = int(entity.get("spawn_y", entity.get("y", -1)))
+	for object_value in objects_value as Array:
+		if not object_value is Dictionary:
+			continue
+		var object: Dictionary = object_value
+		if int(object.get("x", -2)) != entity_x or int(object.get("y", -2)) != entity_y:
+			continue
+		entity["hide_flag_id"] = int(object.get("hide_flag_id", 0))
+		entity["spawn_x"] = int(object.get("x", entity_x))
+		entity["spawn_y"] = int(object.get("y", entity_y))
+		return
+
+func _story_hides_entity(entity: Dictionary) -> bool:
+	if not bool(entity.get("npc", false)) or bool(entity.get("story_cutscene_spawn", false)):
 		return false
+	_attach_hide_flag(entity)
+	var map_id: String = str(entity.get("map_id", ""))
 	var region_id: int = int(entity.get("region_id", GameState.story_region_id))
+	var hide_flag_id: int = int(entity.get("hide_flag_id", 0))
+	if hide_flag_id > 0:
+		return GameState.is_story_flag_set(region_id, hide_flag_id) or _oaks_lab_scene_hides(map_id, region_id, hide_flag_id)
+	var objects_value: Variant = story_objects_by_map.get(map_id, [])
+	if not objects_value is Array:
+		return false
 	var entity_x: int = int(entity.get("x", -1))
 	var entity_y: int = int(entity.get("y", -1))
 	for object_value in objects_value as Array:
@@ -788,7 +816,7 @@ func _story_hides_entity(entity: Dictionary) -> bool:
 		var object: Dictionary = object_value
 		if int(object.get("x", -2)) != entity_x or int(object.get("y", -2)) != entity_y:
 			continue
-		var hide_flag_id: int = int(object.get("hide_flag_id", 0))
+		hide_flag_id = int(object.get("hide_flag_id", 0))
 		if GameState.is_story_flag_set(region_id, hide_flag_id) or _oaks_lab_scene_hides(map_id, region_id, hide_flag_id):
 			return true
 	return false

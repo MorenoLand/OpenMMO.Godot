@@ -16,6 +16,14 @@ func _init() -> void:
 		push_error("completed story NPC was not hidden")
 		quit(1)
 		return
+	var walked: Dictionary = npc.duplicate(true)
+	walked["x"] = 14
+	walked["y"] = 10
+	walked["hide_flag_id"] = 40
+	if not bool(world.call("_story_hides_entity", walked)):
+		push_error("story NPC was not hidden after leaving its spawn tile")
+		quit(1)
+		return
 	npc["story_cutscene_spawn"] = true
 	if bool(world.call("_story_hides_entity", npc)):
 		push_error("explicit story cutscene NPC was incorrectly hidden")

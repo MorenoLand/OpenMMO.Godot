@@ -35,10 +35,9 @@ var release_glow_texture: Texture2D
 var state: Dictionary = {}
 var selection_mode: String = ""
 var selection_index: int = 0
+var selection_grid_columns: int = 2
 var selection_buttons: Array[Button] = []
 var input_locked: bool = true
-var log_scroll_following: bool = true
-var log_scroll_adjusting: bool = false
 
 func _ready() -> void:
 	set_process_input(true)
@@ -143,7 +142,7 @@ func _build_ui() -> void:
 	log_view.custom_minimum_size = Vector2(0.0, 72.0)
 	log_view.add_theme_font_size_override("normal_font_size", 13)
 	log_panel.add_child(log_view)
-	log_view.get_v_scroll_bar().value_changed.connect(_on_log_scroll_changed)
+	log_view.scroll_following = true
 	var action_panel := PanelContainer.new()
 	action_panel.anchor_left = 0.025
 	action_panel.anchor_top = 0.74
@@ -313,13 +312,21 @@ func _input(event: InputEvent) -> void:
 		return
 	if input_locked or not bool(state.get("can_act", false)):
 		return
-	if key_code in [KEY_LEFT, KEY_UP, KEY_W]:
+	if key_code in [KEY_LEFT]:
 		get_viewport().set_input_as_handled()
-		_move_selection(-1)
+		_move_selection_grid(-1, 0)
 		return
-	if key_code in [KEY_RIGHT, KEY_DOWN, KEY_D, KEY_S]:
+	if key_code in [KEY_RIGHT, KEY_D]:
 		get_viewport().set_input_as_handled()
-		_move_selection(1)
+		_move_selection_grid(1, 0)
+		return
+	if key_code in [KEY_UP, KEY_W]:
+		get_viewport().set_input_as_handled()
+		_move_selection_grid(0, -1)
+		return
+	if key_code in [KEY_DOWN, KEY_S]:
+		get_viewport().set_input_as_handled()
+		_move_selection_grid(0, 1)
 		return
 	if key_code in confirm_keys:
 		get_viewport().set_input_as_handled()
@@ -330,14 +337,27 @@ func _input(event: InputEvent) -> void:
 		_activate_selection(int(key_code - KEY_1))
 
 func _move_selection(delta: int) -> void:
-	if selection_buttons.is_empty():
+	_move_selection_grid(delta, 0) if selection_grid_columns <= 1 else _move_selection_grid(0, delta)
+
+func _move_selection_grid(dx: int, dy: int) -> void:
+	var count: int = selection_buttons.size()
+	if count == 0:
 		return
-	var candidate: int = selection_index
-	for _step in selection_buttons.size():
-		candidate = wrapi(candidate + delta, 0, selection_buttons.size())
-		if not selection_buttons[candidate].disabled:
-			selection_index = candidate
-			selection_buttons[candidate].grab_focus()
+	var cols: int = maxi(selection_grid_columns, 1)
+	var rows: int = int((count + cols - 1) / cols)
+	var index: int = clampi(selection_index, 0, count - 1)
+	for _step in count:
+		var row: int = int(index / cols)
+		var col: int = index % cols
+		if dx != 0:
+			col = wrapi(col + dx, 0, cols)
+			index = mini(row * cols + col, count - 1)
+		else:
+			row = wrapi(row + dy, 0, rows)
+			index = mini(row * cols + col, count - 1)
+		if not selection_buttons[index].disabled:
+			selection_index = index
+			selection_buttons[index].grab_focus()
 			return
 
 func _activate_selection(index: int) -> void:
@@ -791,33 +811,24 @@ func _send_battle_action(action: int, value: int, label: String, target_entity_i
 		_append_log("Could not send: %s" % label)
 
 func _append_log(message: String) -> void:
-	if log_view != null:
-		var bar: VScrollBar = log_view.get_v_scroll_bar()
-		log_scroll_following = log_scroll_following or bar.value >= bar.max_value - 2.0
-		log_view.append_text(message + "\n")
-		if log_scroll_following:
-			log_view.scroll_following = true
-		call_deferred("_scroll_log_to_bottom")
-
-func _on_log_scroll_changed(value: float) -> void:
-	if log_scroll_adjusting or log_view == null:
+	if log_view == null:
 		return
-	var bar: VScrollBar = log_view.get_v_scroll_bar()
-	log_scroll_following = value >= bar.max_value - 2.0
-	log_view.scroll_following = log_scroll_following
+	log_view.append_text(message + "\n")
+	log_view.scroll_following = true
+	call_deferred("_scroll_log_to_bottom")
 
 func _scroll_log_to_bottom() -> void:
-	if log_view == null or not log_scroll_following:
+	if log_view == null:
 		return
 	await get_tree().process_frame
-	await get_tree().process_frame
-	if log_view == null or not log_scroll_following:
+	if log_view == null:
 		return
-	var bar: VScrollBar = log_view.get_v_scroll_bar()
-	log_scroll_adjusting = true
 	log_view.scroll_following = true
+	var bar: VScrollBar = log_view.get_v_scroll_bar()
 	bar.value = bar.max_value
-	log_scroll_adjusting = false
+	var last_line: int = log_view.get_line_count() - 1
+	if last_line >= 0:
+		log_view.scroll_to_line(last_line)
 
 func _trigger_flash(color: Color = Color(1.0, 1.0, 1.0, 0.82)) -> void:
 	if flash_overlay == null:

@@ -291,6 +291,12 @@ func objects_for_mode(values: Variant) -> Array:
 		filtered.append(object)
 	return filtered
 
+func _story_hides_object(object: Dictionary) -> bool:
+	var hide_flag_id: int = int(object.get("hide_flag_id", 0))
+	if hide_flag_id <= 0:
+		return false
+	return GameState.is_story_flag_set(GameState.story_region_id, hide_flag_id)
+
 func _sprite_content_for_region(region_id: int) -> OpenMMOContent:
 	var region_content: OpenMMOContent = GameState.content_for_region("kanto") if region_id == 0 else GameState.content_for_region("hoenn") if region_id == 1 else null
 	return region_content if region_content != null else content
@@ -1211,6 +1217,8 @@ func _movement_objects() -> Array:
 	for object_value in objects:
 		if object_value is Dictionary and authoritative_state and str((object_value as Dictionary).get("kind", "")) == "object" and not bool((object_value as Dictionary).get("inanimate", false)):
 			continue
+		if object_value is Dictionary and _story_hides_object(object_value as Dictionary):
+			continue
 		result.append(object_value)
 	return result
 
@@ -1573,6 +1581,8 @@ func inspect_at_screen(screen_position: Vector2) -> Dictionary:
 			continue
 		if int(object.get("x", -1)) != local_tile.x or int(object.get("y", -1)) != local_tile.y:
 			continue
+		if _story_hides_object(object):
+			continue
 		hit_objects.append({"kind": str(object.get("kind", "object")), "local_id": int(object.get("local_id", -1)), "graphics_id": int(object.get("graphics_id", -1)), "script_offset": int(object.get("script_offset", -1)), "dialogue_id": str(object.get("dialogue_id", "")), "movement_type": int(object.get("movement_type", -1)), "elevation": int(object.get("elevation", -1))})
 	for entity_value in world_entities:
 		if not entity_value is Dictionary:
@@ -1791,6 +1801,8 @@ func _draw() -> void:
 					continue
 				var object: Dictionary = object_value
 				if authoritative_state and str(object.get("kind", "")) == "object" and not bool(object.get("inanimate", false)):
+					continue
+				if _story_hides_object(object):
 					continue
 				if not bool(object.get("render", true)):
 					continue
