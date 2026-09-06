@@ -757,7 +757,7 @@ func _on_game_packet(opcode: int, payload: PackedByteArray) -> void:
 			connection_error.emit(str(response.get("error", "OpenMMO entity packet is malformed")))
 			return
 		var player: Dictionary = response.entity
-				player["map_id"] = map_id_for_location(int(player.get("bank_id", -1)), int(player.get("wire_map_id", -1))) if has_content() else ""
+		player["map_id"] = map_id_for_location(int(player.get("bank_id", -1)), int(player.get("wire_map_id", -1))) if has_content() else ""
 		player["character_id"] = int(player.get("entity_id", 0))
 		var is_local: bool = awaiting_local_entity
 		var current_character_id: int = int(current_character.get("id", 0))
