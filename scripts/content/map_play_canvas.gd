@@ -796,12 +796,26 @@ func _scripted_step_info(action: int) -> Dictionary:
 			return {"direction": 3, "walk": true, "animate": true, "duration": 0.13}
 		0x20:
 			return {"direction": 4, "walk": true, "animate": true, "duration": 0.13}
+		0x21:
+			return {"direction": 1, "walk": false, "animate": true, "duration": 0.13}
+		0x22:
+			return {"direction": 2, "walk": false, "animate": true, "duration": 0.13}
 		0x23:
 			return {"direction": 3, "walk": false, "animate": true, "duration": 0.13}
 		0x24:
 			return {"direction": 4, "walk": false, "animate": true, "duration": 0.13}
+		0x4A:
+			return {"direction": 1, "walk": true, "animate": true, "duration": 0.5, "tiles": 2, "jump": true}
+		0x4B:
+			return {"direction": 2, "walk": true, "animate": true, "duration": 0.5, "tiles": 2, "jump": true}
+		0x4C:
+			return {"direction": 3, "walk": true, "animate": true, "duration": 0.5, "tiles": 2, "jump": true}
+		0x4D:
+			return {"direction": 4, "walk": true, "animate": true, "duration": 0.5, "tiles": 2, "jump": true}
 		0x60:
 			return {"direction": 0, "walk": false, "animate": false, "duration": 0.01, "visible": false}
+		0x70:
+			return {"direction": 0, "walk": false, "animate": false, "duration": 0.5, "exclaim": true}
 	return {}
 
 func _start_next_scripted_movement() -> void:
@@ -817,12 +831,14 @@ func _start_next_scripted_movement() -> void:
 		movement_scripted_action = action
 		movement_animation_active = bool(info.get("animate", false))
 		movement_start = Vector2(player_position)
-		movement_target = movement_start + _direction_vector(direction) if bool(info.get("walk", false)) else movement_start
+		var tiles: int = maxi(int(info.get("tiles", 1)), 1)
+		movement_target = movement_start + _direction_vector(direction) * tiles if bool(info.get("walk", false)) else movement_start
 		pending_map_id = map_id
 		pending_position = Vector2i(int(round(movement_target.x)), int(round(movement_target.y)))
 		pending_elevation = player_elevation
 		pending_warp = {}
-		movement_jump = false
+		movement_jump = bool(info.get("jump", false))
+		exclaim_timer = float(info.get("exclaim", false)) * float(info.get("duration", 0.5))
 		movement_stair = false
 		movement_stair_behavior = 0
 		movement_door = false
