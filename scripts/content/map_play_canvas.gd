@@ -718,10 +718,12 @@ func set_world_entities(values: Array, local_character_id: int) -> void:
 		var previous_position: Vector2i = Vector2i(int(previous.get("x", incoming_position.x)), int(previous.get("y", incoming_position.y)))
 		var previous_active: bool = bool(previous.get("movement_active", false))
 		var previous_scripted: bool = bool(previous.get("movement_scripted", false))
+		var last_server: Vector2i = Vector2i(int(previous.get("last_server_x", incoming_position.x)), int(previous.get("last_server_y", incoming_position.y)))
 		var retain_script_position: bool = (previous_active or previous_scripted) and incoming_position != previous_position
+		var retain_idle_position: bool = int(previous.get("movement_type", 0)) >= 2 and incoming_position == last_server
 		var clear_script_position: bool = previous_scripted and not previous_active and incoming_position == previous_position
-		var resolved_x: int = previous_position.x if retain_script_position else incoming_position.x
-		var resolved_y: int = previous_position.y if retain_script_position else incoming_position.y
+		var resolved_x: int = previous_position.x if retain_script_position or retain_idle_position else incoming_position.x
+		var resolved_y: int = previous_position.y if retain_script_position or retain_idle_position else incoming_position.y
 		var script_busy: bool = previous_scripted and not clear_script_position
 		var resolved_facing: int = int(previous.get("facing", facing)) if previous_active or script_busy else facing
 		var texture: Texture2D = previous.get("texture") as Texture2D
@@ -730,9 +732,13 @@ func set_world_entities(values: Array, local_character_id: int) -> void:
 			texture = sprite.get("texture") as Texture2D
 		if texture == null and not is_npc:
 			continue
-		var stored_entity: Dictionary = {"entity_key": entity_key, "entity_id": entity_id, "npc": is_npc, "map_id": entity_map_id, "texture": texture, "width": texture.get_width() if texture != null else 0, "height": texture.get_height() if texture != null else 0, "x": resolved_x, "y": resolved_y, "elevation": int(entity.get("elevation", 3)), "facing": resolved_facing, "default_facing": int(entity.get("facing", 1)), "graphics_id": graphics_id, "sprite_region_id": sprite_region_id, "blocks_movement": bool(entity.get("blocks_movement", is_npc)), "visible": true, "movement_scripted": script_busy, "movement_active": false, "movement_start": Vector2.ZERO, "movement_target": Vector2.ZERO, "movement_elapsed": 0.0, "movement_duration": 0.0, "movement_action": -1, "movement_animation": false, "movement_frame": -1, "movement_queue": []}
+		var movement_type: int = int(previous.get("movement_type", (int(entity.get("unk3", 0)) >> 8) & 0xFF)) if is_npc else 0
+		var walk_in_place: bool = movement_type >= 64 and movement_type <= 75
+		if walk_in_place and movement_type <= 67:
+			resolved_facing = (movement_type - 64) + 1
+		var stored_entity: Dictionary = {"entity_key": entity_key, "entity_id": entity_id, "npc": is_npc, "map_id": entity_map_id, "texture": texture, "width": texture.get_width() if texture != null else 0, "height": texture.get_height() if texture != null else 0, "x": resolved_x, "y": resolved_y, "elevation": int(entity.get("elevation", 3)), "facing": resolved_facing, "default_facing": int(entity.get("facing", 1)), "graphics_id": graphics_id, "sprite_region_id": sprite_region_id, "blocks_movement": bool(entity.get("blocks_movement", is_npc)), "visible": true, "movement_scripted": script_busy, "movement_active": false, "movement_start": Vector2.ZERO, "movement_target": Vector2.ZERO, "movement_elapsed": 0.0, "movement_duration": 0.0, "movement_action": -1, "movement_animation": walk_in_place, "movement_frame": -1, "movement_queue": [], "movement_type": movement_type, "range_x": int(previous.get("range_x", (int(entity.get("unk4", 0)) >> 8) & 0xFF)), "range_y": int(previous.get("range_y", int(entity.get("unk4", 0)) & 0xFF)), "home_x": int(previous.get("home_x", incoming_position.x)), "home_y": int(previous.get("home_y", incoming_position.y)), "last_server_x": incoming_position.x, "last_server_y": incoming_position.y, "wait_elapsed": float(previous.get("wait_elapsed", 0.0)), "seq_index": int(previous.get("seq_index", 0)), "walk_in_place": walk_in_place, "pending_dir": int(previous.get("pending_dir", -1))}
 		stored_entity["battle"] = bool(entity.get("battle", false))
-		for dynamic_key in ["visible", "movement_scripted", "movement_active", "movement_start", "movement_target", "movement_elapsed", "movement_duration", "movement_action", "movement_animation", "movement_frame", "movement_queue"]:
+		for dynamic_key in ["visible", "movement_scripted", "movement_active", "movement_start", "movement_target", "movement_elapsed", "movement_duration", "movement_action", "movement_animation", "movement_frame", "movement_queue", "wait_elapsed", "seq_index", "pending_dir", "walk_in_place", "movement_type", "range_x", "range_y", "home_x", "home_y"]:
 			if previous.has(dynamic_key):
 				stored_entity[dynamic_key] = previous.get(dynamic_key)
 		stored_entity["movement_scripted"] = script_busy
@@ -958,6 +964,118 @@ func _process_world_entity_movements(delta: float) -> void:
 			world_entities[index] = entity
 	if redraw_needed:
 		queue_redraw()
+
+func _tick_npc_idle_motion(delta: float) -> void:
+	var redraw_needed: bool = false
+	for index in world_entities.size():
+		if not world_entities[index] is Dictionary:
+			continue
+		var entity: Dictionary = (world_entities[index] as Dictionary).duplicate()
+		if not bool(entity.get("npc", false)) or bool(entity.get("movement_scripted", false)) or bool(entity.get("movement_active", false)):
+			continue
+		var movement_type: int = int(entity.get("movement_type", 0))
+		if bool(entity.get("walk_in_place", false)) or (movement_type >= 64 and movement_type <= 75):
+			entity["walk_in_place"] = true
+			entity["movement_animation"] = true
+			entity["movement_duration"] = 0.5
+			entity["movement_elapsed"] = fmod(float(entity.get("movement_elapsed", 0.0)) + delta, 0.5)
+			_update_world_entity_texture(entity)
+			world_entities[index] = entity
+			redraw_needed = true
+			continue
+		if movement_type < 2 or (movement_type >= 7 and movement_type <= 12):
+			continue
+		var wait_elapsed: float = float(entity.get("wait_elapsed", 0.0)) - delta
+		if wait_elapsed > 0.0:
+			entity["wait_elapsed"] = wait_elapsed
+			world_entities[index] = entity
+			continue
+		entity["wait_elapsed"] = 0.0
+		var walked: bool = false
+		if movement_type >= 25 and movement_type <= 28:
+			walked = _npc_try_patrol(entity, movement_type)
+		elif movement_type >= 2 and movement_type <= 6:
+			walked = _npc_try_wander(entity, movement_type)
+		world_entities[index] = entity
+		if walked:
+			_start_world_entity_movement(index)
+			redraw_needed = true
+		else:
+			entity["wait_elapsed"] = 0.25
+			world_entities[index] = entity
+	if redraw_needed:
+		queue_redraw()
+
+func _npc_in_range(entity: Dictionary, dest: Vector2i) -> bool:
+	var home: Vector2i = Vector2i(int(entity.get("home_x", 0)), int(entity.get("home_y", 0)))
+	var range_x: int = int(entity.get("range_x", 0))
+	var range_y: int = int(entity.get("range_y", 0))
+	if range_x == 0 and dest.x != home.x:
+		return false
+	if range_y == 0 and dest.y != home.y:
+		return false
+	return absi(dest.x - home.x) <= range_x and absi(dest.y - home.y) <= range_y
+
+func _npc_can_enter(entity: Dictionary, dest: Vector2i) -> bool:
+	if not _npc_in_range(entity, dest):
+		return false
+	if dest == player_position:
+		return false
+	for other_value in world_entities:
+		if not other_value is Dictionary:
+			continue
+		var other: Dictionary = other_value
+		if int(other.get("entity_id", 0)) == int(entity.get("entity_id", 0)):
+			continue
+		if int(other.get("x", -1)) == dest.x and int(other.get("y", -1)) == dest.y:
+			return false
+	if content == null:
+		return true
+	return content.can_walk(str(entity.get("map_id", map_id)), int(entity.get("x", 0)), int(entity.get("y", 0)), dest.x, dest.y, int(entity.get("elevation", 3)))
+
+func _npc_queue_step(entity: Dictionary, godot_dir: int) -> bool:
+	var start: Vector2i = Vector2i(int(entity.get("x", 0)), int(entity.get("y", 0)))
+	var dest: Vector2i = start + Vector2i(_direction_vector(godot_dir))
+	if not _npc_can_enter(entity, dest):
+		return false
+	entity["facing"] = godot_dir
+	entity["movement_queue"] = [0x0F + godot_dir]
+	return true
+
+func _npc_try_patrol(entity: Dictionary, movement_type: int) -> bool:
+	var first: int = 4 if movement_type == 28 else 3 if movement_type == 27 else 1 if movement_type == 25 else 1
+	var second: int = 3 if movement_type == 28 else 4 if movement_type == 27 else 2 if movement_type == 25 else 2
+	if movement_type == 26:
+		first = 1
+		second = 2
+	if movement_type == 25:
+		first = 2
+		second = 1
+	var seq: int = int(entity.get("seq_index", 0))
+	var godot_dir: int = second if seq != 0 else first
+	if _npc_queue_step(entity, godot_dir):
+		return true
+	entity["seq_index"] = 0 if seq != 0 else 1
+	godot_dir = second if int(entity.get("seq_index", 0)) != 0 else first
+	return _npc_queue_step(entity, godot_dir)
+
+func _npc_try_wander(entity: Dictionary, movement_type: int) -> bool:
+	var pending: int = int(entity.get("pending_dir", -1))
+	if pending > 0:
+		entity["pending_dir"] = -1
+		return _npc_queue_step(entity, pending)
+	var godot_dir: int = (randi() % 4) + 1
+	if movement_type == 3 or movement_type == 4:
+		godot_dir = 1 if (randi() & 1) == 0 else 2
+	elif movement_type == 5 or movement_type == 6:
+		godot_dir = 3 if (randi() & 1) == 0 else 4
+	if godot_dir != int(entity.get("facing", 1)):
+		entity["facing"] = godot_dir
+		entity["pending_dir"] = godot_dir
+		entity["wait_elapsed"] = 0.4
+		_update_world_entity_texture(entity)
+		return false
+	return _npc_queue_step(entity, godot_dir)
 
 func _apply_map(result: Dictionary, reset_spawn: bool) -> void:
 	map_texture = result.get("texture", result.get("background_texture")) as Texture2D
@@ -1215,6 +1333,7 @@ func _process(delta: float) -> void:
 		held_direction = 0
 		return
 	_process_world_entity_movements(delta)
+	_tick_npc_idle_motion(delta)
 	_update_follower(delta)
 	if _text_input_has_focus():
 		held_direction = 0
