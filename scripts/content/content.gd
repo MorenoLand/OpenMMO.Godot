@@ -2976,7 +2976,7 @@ func _decode_rom_character(value: int) -> String:
 		return char(97 + value - 0xD5)
 	match value:
 		0x1B:
-			return "Ac"
+			return "é"
 		0xAB:
 			return "!"
 		0xAC:
