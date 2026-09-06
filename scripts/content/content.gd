@@ -269,26 +269,33 @@ func _read_rom_u16(offset: int) -> int:
 	return int(rom_data[offset]) | (int(rom_data[offset + 1]) << 8)
 
 func _populate_fire_red_object_sprites(object_sprites: Dictionary) -> void:
-	if str(source_profile.get("region", "")) != "Kanto" or rom_data.is_empty():
+	if rom_data.is_empty():
 		return
-	var table_offset: int = -1
-	for candidate in [0x39FE20, 0x39FDB0]:
-		var valid_entries: int = 0
-		for entry in range(16):
-			var structure_offset: int = _read_rom_pointer(candidate + entry * 4)
-			if structure_offset < 0 or not _valid_range(structure_offset + 0x08, 4):
-				continue
-			var width: int = _read_s16(structure_offset + 0x08)
-			var height: int = _read_s16(structure_offset + 0x0A)
-			if width > 0 and height > 0 and width % 8 == 0 and height % 8 == 0 and width <= 64 and height <= 64:
-				valid_entries += 1
-		if valid_entries >= 4:
-			table_offset = candidate
-			break
+	var table_offset: int = int(source_profile.get("object_event_graphics_table", -1))
+	var palette_table_offset: int = int(source_profile.get("object_event_palette_table", -1))
+	var entry_count: int = int(source_profile.get("object_event_graphics_count", 152))
 	if table_offset < 0:
+		if str(source_profile.get("region", "")) != "Kanto":
+			return
+		for candidate in [0x39FE20, 0x39FDB0]:
+			var valid_entries: int = 0
+			for entry in range(16):
+				var structure_offset: int = _read_rom_pointer(candidate + entry * 4)
+				if structure_offset < 0 or not _valid_range(structure_offset + 0x08, 4):
+					continue
+				var width: int = _read_s16(structure_offset + 0x08)
+				var height: int = _read_s16(structure_offset + 0x0A)
+				if width > 0 and height > 0 and width % 8 == 0 and height % 8 == 0 and width <= 64 and height <= 64:
+					valid_entries += 1
+			if valid_entries >= 4:
+				table_offset = candidate
+				break
+		if table_offset < 0:
+			return
+		palette_table_offset = 0x3A51C8 if table_offset == 0x39FE20 else 0x3A501C
+	if palette_table_offset < 0 or entry_count <= 0:
 		return
-	var palette_table_offset: int = 0x3A51C8 if table_offset == 0x39FE20 else 0x3A501C
-	for entry in range(152):
+	for entry in range(entry_count):
 		var structure_offset: int = _read_rom_pointer(table_offset + entry * 4)
 		if structure_offset < 0 or not _valid_range(structure_offset + 0x20, 4):
 			continue
@@ -3035,8 +3042,11 @@ func _read_map_connections(header_offset: int) -> Array:
 func render_facing_object_sprite(graphics_id: int, direction: int, moving: bool = false, frame_step: int = 0) -> Dictionary:
 	var object_sprites: Dictionary = _object_sprite_specs()
 	var resolved_id: int = graphics_id
-	if resolved_id < 0 or resolved_id >= 152 or not object_sprites.has(resolved_id):
-		resolved_id = 16
+	if resolved_id < 0 or not object_sprites.has(resolved_id):
+		if object_sprites.has(16):
+			resolved_id = 16
+		else:
+			return {"ok": false, "error": "object graphics are not available for this graphics ID"}
 	var spec: Dictionary = object_sprites.get(resolved_id, {})
 	if bool(spec.get("inanimate", false)):
 		return render_object_sprite(graphics_id, 0, false)
@@ -3062,8 +3072,11 @@ func render_facing_object_sprite(graphics_id: int, direction: int, moving: bool 
 func render_object_sprite(graphics_id: int, frame: int = 0, flip_h: bool = false) -> Dictionary:
 	var resolved_graphics_id: int = graphics_id
 	var object_sprites: Dictionary = _object_sprite_specs()
-	if resolved_graphics_id < 0 or resolved_graphics_id >= 152 or not object_sprites.has(resolved_graphics_id):
-		resolved_graphics_id = 16
+	if resolved_graphics_id < 0 or not object_sprites.has(resolved_graphics_id):
+		if object_sprites.has(16):
+			resolved_graphics_id = 16
+		else:
+			return {"ok": false, "error": "object graphics are not available for this graphics ID"}
 	var spec: Dictionary = object_sprites.get(resolved_graphics_id, {})
 	if spec.is_empty():
 		return {"ok": false, "error": "FireRed object graphics are not available for this graphics ID"}

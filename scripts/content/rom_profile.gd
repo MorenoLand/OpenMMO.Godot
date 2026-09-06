@@ -52,6 +52,11 @@ static func _hoenn_base_profile(id: String, game: String, map_groups_offset: int
 static func _emerald_profile() -> Dictionary:
 	var profile: Dictionary = _hoenn_base_profile("pokemon-emerald", "Emerald", 0x486578)
 	profile["audio"] = {"song_table_offset": 0x4A3780, "anchor_song_ids": []}
+	profile["object_event_graphics_table"] = 0x505620
+	profile["object_event_palette_table"] = 0x50BBC8
+	profile["object_event_graphics_count"] = 256
+	profile["player_object_graphics_id"] = 0
+	profile["player_object_graphics_id_female"] = 89
 	return profile
 
 static func _ruby_profile() -> Dictionary:
