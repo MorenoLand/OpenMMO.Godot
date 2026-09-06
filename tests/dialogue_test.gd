@@ -36,6 +36,19 @@ func _run() -> void:
 	if dialogue.is_open():
 		_fail("dialogue did not close after the final page")
 		return
+	dialogue.show_choice(["Welcome to the POKEMON CENTER.", "Would you like to rest your POKEMON?"], [{"label": "Yes", "value": 1}, {"label": "No", "value": 0}])
+	if dialogue.choice_active or (dialogue.choice_box != null and dialogue.choice_box.visible):
+		_fail("yes/no appeared before the last page")
+		return
+	dialogue.handle_action()
+	dialogue.handle_action()
+	if dialogue.page_index != 1 or dialogue.choice_active:
+		_fail("yes/no appeared before the question finished typing")
+		return
+	dialogue.handle_action()
+	if not dialogue.choice_active or dialogue.choice_box == null or not dialogue.choice_box.visible:
+		_fail("yes/no did not appear after the last page finished")
+		return
 	var previous_character: Dictionary = GameState.current_character.duplicate(true)
 	var world: Control = load("res://scripts/world/world.gd").new()
 	GameState.current_character = {"name": "KANTO", "rival_sex": 0}

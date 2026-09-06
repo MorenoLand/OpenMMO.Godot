@@ -202,11 +202,10 @@ func show_choice(values: Array, options: Array, suppress_action: bool = false, a
 		label.custom_minimum_size = Vector2(0, 26)
 		choice_box.add_child(label)
 		choice_labels.append(label)
-	choice_active = not choice_options.is_empty() and open_state
 	choice_index = 0
-	if choice_active:
-		text_label.custom_minimum_size = Vector2(0, 88)
-		choice_box.visible = true
+	choice_active = false
+	if choice_box != null:
+		choice_box.visible = false
 	_layout_panel()
 	_render()
 
@@ -218,6 +217,9 @@ func text_complete() -> bool:
 
 func is_choice_open() -> bool:
 	return open_state and choice_active
+
+func _choice_prompt_ready() -> bool:
+	return open_state and not choice_options.is_empty() and page_index + 1 >= pages.size() and visible_count >= current_text.length()
 
 func handle_action() -> bool:
 	if not open_state:
@@ -304,10 +306,17 @@ func _render() -> void:
 		return
 	text_label.text = current_text
 	text_label.visible_characters = visible_count
+	var prompt: bool = _choice_prompt_ready()
+	if prompt != choice_active:
+		choice_active = prompt
+		if choice_box != null:
+			choice_box.visible = prompt
+		text_label.custom_minimum_size = Vector2(0, 88 if prompt else 112)
+		_layout_panel()
 	for index in choice_labels.size():
 		var label: Label = choice_labels[index]
 		var option: Dictionary = choice_options[index]
 		label.text = ("▶ " if index == choice_index else "  ") + str(option.get("label", ""))
 		label.modulate = Color(1.0, 0.92, 0.5) if index == choice_index else Color.WHITE
 	if arrow_label != null:
-		arrow_label.visible = open_state and visible_count >= current_text.length()
+		arrow_label.visible = open_state and visible_count >= current_text.length() and not prompt
