@@ -318,7 +318,10 @@ func _populate_fire_red_object_sprites(object_sprites: Dictionary) -> void:
 		if palette_offset < 0:
 			continue
 		if not object_sprites.has(entry):
-			object_sprites[entry] = {"data_offset": first_data_offset, "width": width, "height": height, "frame_bytes": expected_bytes, "frame_count": frame_count, "palette_offset": palette_offset}
+			# FireRed town-map (32x16 OAM) stores a 16x32 strip of 16x16 blocks; display packs them LTR.
+			var storage_width: int = 16 if width == 32 and height == 16 else width
+			var storage_height: int = 32 if width == 32 and height == 16 else height
+			object_sprites[entry] = {"data_offset": first_data_offset, "width": width, "height": height, "storage_width": storage_width, "storage_height": storage_height, "frame_bytes": expected_bytes, "frame_count": frame_count, "palette_offset": palette_offset, "inanimate": inanimate}
 
 func _hydrate_manifest() -> void:
 	var maps: Array = manifest.get("maps", [])
@@ -2624,7 +2627,9 @@ func _read_map_objects(header_offset: int, map_id: String) -> Array:
 		if not dialogue.is_empty():
 			dialogue["id"] = "%s:%d" % [map_id, local_id]
 			_register_dialogue(map_id, local_id, script_offset, dialogue)
-		objects.append({"kind": "object", "local_id": local_id, "graphics_id": graphics_id, "resolved_graphics_id": int(sprite.get("resolved_graphics_id", graphics_id)), "hide_flag_id": _read_u16(offset + 0x14), "x": _read_s16(offset + 4), "y": _read_s16(offset + 6), "elevation": int(rom_data[offset + 8]), "movement_type": movement_type, "default_facing": default_facing, "facing": default_facing, "script_offset": script_offset, "dialogue_id": str(dialogue.get("id", "")), "dialogue_pages": dialogue.get("pages", []), "texture": sprite.get("texture"), "width": int(sprite.get("width", 0)), "height": int(sprite.get("height", 0)), "frame_count": int(sprite.get("frame_count", 1)), "render": true, "blocks_movement": true, "interactable": true})
+		var object_spec: Dictionary = _object_sprite_specs().get(int(sprite.get("resolved_graphics_id", graphics_id)), {})
+		var inanimate_object: bool = bool(object_spec.get("inanimate", false))
+		objects.append({"kind": "object", "local_id": local_id, "graphics_id": graphics_id, "resolved_graphics_id": int(sprite.get("resolved_graphics_id", graphics_id)), "hide_flag_id": _read_u16(offset + 0x14), "x": _read_s16(offset + 4), "y": _read_s16(offset + 6), "elevation": int(rom_data[offset + 8]), "movement_type": movement_type, "default_facing": default_facing, "facing": default_facing, "script_offset": script_offset, "dialogue_id": str(dialogue.get("id", "")), "dialogue_pages": dialogue.get("pages", []), "texture": sprite.get("texture"), "width": int(sprite.get("width", 0)), "height": int(sprite.get("height", 0)), "frame_count": int(sprite.get("frame_count", 1)), "render": true, "blocks_movement": true, "interactable": true, "inanimate": inanimate_object})
 	return objects
 
 func _initial_object_facing(movement_type: int) -> int:
@@ -2907,6 +2912,13 @@ func _read_map_connections(header_offset: int) -> Array:
 	return connections
 
 func render_facing_object_sprite(graphics_id: int, direction: int, moving: bool = false, frame_step: int = 0) -> Dictionary:
+	var object_sprites: Dictionary = _object_sprite_specs()
+	var resolved_id: int = graphics_id
+	if resolved_id < 0 or resolved_id >= 152 or not object_sprites.has(resolved_id):
+		resolved_id = 16
+	var spec: Dictionary = object_sprites.get(resolved_id, {})
+	if bool(spec.get("inanimate", false)):
+		return render_object_sprite(graphics_id, 0, false)
 	var direction_name: String = "south"
 	match direction:
 		CONNECTION_NORTH:
@@ -2951,17 +2963,37 @@ func render_object_sprite(graphics_id: int, frame: int = 0, flip_h: bool = false
 	var palette_offset: int = int(spec.get("palette_offset", -1))
 	if width <= 0 or height <= 0 or frame_bytes <= 0 or width % 8 != 0 or height % 8 != 0 or not _valid_range(data_offset, frame_bytes) or not _valid_range(palette_offset, 32):
 		return {"ok": false, "error": "FireRed object graphics data is outside the selected ROM"}
-	var image: Image = Image.create(width, height, false, Image.FORMAT_RGBA8)
-	var tiles_wide: int = width / 8
-	for pixel_y in range(height):
-		for pixel_x in range(width):
+	var storage_width: int = int(spec.get("storage_width", width))
+	var storage_height: int = int(spec.get("storage_height", height))
+	if storage_width <= 0 or storage_height <= 0 or storage_width % 8 != 0 or storage_height % 8 != 0 or storage_width * storage_height / 2 != frame_bytes:
+		storage_width = width
+		storage_height = height
+	var storage_image: Image = Image.create(storage_width, storage_height, false, Image.FORMAT_RGBA8)
+	var tiles_wide: int = storage_width / 8
+	var tile_bytes_per_tile: int = _format_int("tile_bytes", TILE_BYTES)
+	for pixel_y in range(storage_height):
+		for pixel_x in range(storage_width):
 			var tile_index: int = (pixel_y >> 3) * tiles_wide + (pixel_x >> 3)
-			var packed: int = int(rom_data[data_offset + tile_index * _format_int("tile_bytes", TILE_BYTES) + (pixel_y & 7) * 4 + ((pixel_x & 7) >> 1)])
+			var packed: int = int(rom_data[data_offset + tile_index * tile_bytes_per_tile + (pixel_y & 7) * 4 + ((pixel_x & 7) >> 1)])
 			var color_index: int = packed & 0x0F if (pixel_x & 1) == 0 else (packed >> 4) & 0x0F
 			var color: Color = _read_palette_color(palette_offset + color_index * 2)
 			if color_index == 0:
 				color = Color(color.r, color.g, color.b, 0.0)
-			image.set_pixel(pixel_x, pixel_y, color)
+			storage_image.set_pixel(pixel_x, pixel_y, color)
+	var image: Image = storage_image
+	if storage_width != width or storage_height != height:
+		image = Image.create(width, height, false, Image.FORMAT_RGBA8)
+		image.fill(Color(0, 0, 0, 0))
+		var block: int = 16
+		var blocks: int = int((storage_width * storage_height) / (block * block))
+		var storage_blocks_wide: int = storage_width / block
+		var display_blocks_wide: int = width / block
+		for block_index in range(blocks):
+			var src_bx: int = block_index % storage_blocks_wide
+			var src_by: int = int(block_index / storage_blocks_wide)
+			var dst_bx: int = block_index % display_blocks_wide
+			var dst_by: int = int(block_index / display_blocks_wide)
+			image.blit_rect(storage_image, Rect2i(src_bx * block, src_by * block, block, block), Vector2i(dst_bx * block, dst_by * block))
 	if flip_h:
 		image.flip_x()
 	var texture: ImageTexture = ImageTexture.create_from_image(image)

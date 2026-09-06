@@ -1653,7 +1653,8 @@ func _draw() -> void:
 				var object_rect: Rect2 = Rect2(Vector2((object_world.x + 0.5) * TILE_PIXELS - sprite_size.x * 0.5, (object_world.y + 1.0) * TILE_PIXELS - sprite_size.y), sprite_size)
 				if not object_rect.grow(TILE_PIXELS).intersects(camera_rect):
 					continue
-				drawables.append({"kind": "sprite", "texture": texture, "width": sprite_size.x, "height": sprite_size.y, "world_anchor": Vector2((object_world.x + 0.5) * TILE_PIXELS, (object_world.y + 1.0) * TILE_PIXELS), "sort_y": object_world.y + 1.0, "sort_order": 0})
+				var furniture: bool = bool(object.get("inanimate", false)) or (int(object.get("height", 0)) <= 16 and int(object.get("width", 0)) >= 32)
+				drawables.append({"kind": "sprite", "texture": texture, "width": sprite_size.x, "height": sprite_size.y, "world_anchor": Vector2((object_world.x + 0.5) * TILE_PIXELS, (object_world.y + 1.0) * TILE_PIXELS), "sort_y": object_world.y + 1.0, "sort_order": -1 if furniture else 0})
 	for entity_value in world_entities:
 		if not entity_value is Dictionary:
 			continue
@@ -1667,7 +1668,8 @@ func _draw() -> void:
 			drawables.append({"kind": "battle_marker", "world_position": Vector2((entity_world.x + 0.5) * TILE_PIXELS, entity_world.y * TILE_PIXELS - 3.0), "sort_y": entity_world.y + 0.1, "sort_order": 3})
 		if entity_texture == null:
 			continue
-		drawables.append({"kind": "sprite", "texture": entity_texture, "width": float(entity.get("width", 0)), "height": float(entity.get("height", 0)), "world_anchor": Vector2((entity_world.x + 0.5) * TILE_PIXELS, (entity_world.y + 1.0) * TILE_PIXELS), "sort_y": entity_world.y + 1.0, "sort_order": 0})
+		var entity_furniture: bool = bool(entity.get("inanimate", false)) or int(entity.get("graphics_id", -1)) == 93 or (float(entity.get("height", 0)) <= 16.0 and float(entity.get("width", 0)) >= 32.0)
+		drawables.append({"kind": "sprite", "texture": entity_texture, "width": float(entity.get("width", 0)), "height": float(entity.get("height", 0)), "world_anchor": Vector2((entity_world.x + 0.5) * TILE_PIXELS, (entity_world.y + 1.0) * TILE_PIXELS), "sort_y": entity_world.y + 1.0, "sort_order": -1 if entity_furniture else 0})
 	if follower_texture != null and following_party_index >= 0 and follower_initialized:
 		drawables.append({"kind": "sprite", "texture": follower_texture, "width": follower_width, "height": follower_height, "world_anchor": (follower_position + Vector2(0.5, 1.0)) * TILE_PIXELS, "sort_y": follower_position.y + 1.0, "sort_order": 0})
 	if player_texture != null and player_visible:
