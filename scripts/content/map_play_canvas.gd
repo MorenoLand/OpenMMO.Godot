@@ -283,10 +283,25 @@ func objects_for_mode(values: Variant) -> Array:
 		return source
 	var filtered: Array = []
 	for value in source:
-		if value is Dictionary and str((value as Dictionary).get("kind", "")) == "object":
+		if not value is Dictionary:
 			continue
-		filtered.append(value)
+		var object: Dictionary = value
+		if str(object.get("kind", "")) == "object" and not bool(object.get("inanimate", false)):
+			continue
+		filtered.append(object)
 	return filtered
+
+func _sprite_content_for_region(region_id: int) -> OpenMMOContent:
+	var region_content: OpenMMOContent = GameState.content_for_region("kanto") if region_id == 0 else GameState.content_for_region("hoenn") if region_id == 1 else null
+	return region_content if region_content != null else content
+
+func _entity_on_current_map(entity: Dictionary, entity_map_id: String) -> bool:
+	if entity_map_id.is_empty() or entity_map_id == map_id or region_origins.has(entity_map_id):
+		return true
+	var server_map: Dictionary = GameState.server_maps.get(GameState.active_map_key, {})
+	if server_map.is_empty():
+		return false
+	return int(entity.get("bank_id", -2)) == int(server_map.get("bank_id", -1)) and int(entity.get("wire_map_id", -2)) == int(server_map.get("map_id", -1))
 
 func _reset_movement_state(clear_direction: bool = false) -> void:
 	movement_active = false
@@ -684,11 +699,16 @@ func set_world_entities(values: Array, local_character_id: int) -> void:
 			continue
 		var entity: Dictionary = value
 		var entity_map_id: String = str(entity.get("map_id", ""))
-		if int(entity.get("character_id", 0)) == local_character_id or not region_origins.has(entity_map_id):
+		var entity_character_id: int = int(entity.get("character_id", -1))
+		if entity_character_id == local_character_id and local_character_id > 0:
 			continue
+		if not _entity_on_current_map(entity, entity_map_id):
+			continue
+		if entity_map_id.is_empty():
+			entity_map_id = map_id
 		var is_npc: bool = bool(entity.get("npc", false))
 		var graphics_id: int = int(entity.get("resolved_graphics_id", entity.get("graphics_id", entity.get("graphic_id", entity.get("sprite_id", 19))))) if is_npc else 19
-		var sprite_region_id: int = int(entity.get("sprite_region_id", 1))
+		var sprite_region_id: int = int(entity.get("sprite_region_id", entity.get("region_id", 1)))
 		var facing: int = int(entity.get("facing", 1))
 		var entity_id: int = int(entity.get("entity_id", entity.get("character_id", entity.get("user_id", 0))))
 		var entity_key: String = "%s:%s" % [str(entity_id), entity_map_id]
@@ -706,7 +726,7 @@ func set_world_entities(values: Array, local_character_id: int) -> void:
 		var resolved_facing: int = int(previous.get("facing", facing)) if previous_active or script_busy else facing
 		var texture: Texture2D = previous.get("texture") as Texture2D
 		if texture == null or int(previous.get("graphics_id", -1)) != graphics_id or int(previous.get("facing", -1)) != resolved_facing:
-			var sprite: Dictionary = content.render_facing_object_sprite(graphics_id, resolved_facing, false, 0)
+			var sprite: Dictionary = _sprite_content_for_region(sprite_region_id).render_facing_object_sprite(graphics_id, resolved_facing, false, 0)
 			texture = sprite.get("texture") as Texture2D
 		if texture == null and not is_npc:
 			continue
@@ -1648,7 +1668,7 @@ func _draw() -> void:
 				if not object_value is Dictionary:
 					continue
 				var object: Dictionary = object_value
-				if authoritative_state and str(object.get("kind", "")) == "object":
+				if authoritative_state and str(object.get("kind", "")) == "object" and not bool(object.get("inanimate", false)):
 					continue
 				if not bool(object.get("render", true)):
 					continue
