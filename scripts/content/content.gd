@@ -3149,9 +3149,10 @@ func _read_tileset(offset: int, tile_count: int, metatile_count: int, palette_co
 		var compressed_tiles: PackedByteArray = _read_lz77(tiles_offset)
 		if compressed_tiles.is_empty():
 			return {}
+		var decoded_tile_count: int = int(compressed_tiles.size() / tile_bytes_per_tile)
+		if effective_tile_count <= 0 or decoded_tile_count < effective_tile_count:
+			effective_tile_count = decoded_tile_count
 		if effective_tile_count <= 0:
-			effective_tile_count = compressed_tiles.size() / tile_bytes_per_tile
-		if compressed_tiles.size() < effective_tile_count * tile_bytes_per_tile:
 			return {}
 		if compressed_tiles.size() > effective_tile_count * tile_bytes_per_tile:
 			tiles = compressed_tiles.slice(0, effective_tile_count * tile_bytes_per_tile)
