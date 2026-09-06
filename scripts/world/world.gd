@@ -317,6 +317,9 @@ func _on_map_load(value: Dictionary) -> void:
 	if hud != null:
 		hud.set_state(GameState.content, map_id, snapshot, snapshot.party)
 	if not await _load_map_texture(map_id, int(value.get("width", 0)), int(value.get("height", 0))):
+		# Always clear warp fade even when texture prep fails (Hoenn indoor black screen).
+		transition_map_ready = true
+		_try_reveal_screen_transition()
 		return
 	map_view.set_input_enabled(true)
 	_sync_map_entities()
@@ -893,11 +896,10 @@ func _resolve_dialogue_pages(pages: Array) -> Array:
 	var regex: RegEx = RegEx.new()
 	regex.compile("\\{(0x[0-9A-Fa-f]{2}|[0-9A-Fa-f]{2}|[A-Za-z0-9_]+)\\}")
 	var resolved: Array = []
-	var page_limit: int = mini(pages.size(), 24)
+	# Cap pathological Hoenn floods only; never truncate real Kanto pages mid-sentence.
+	var page_limit: int = mini(pages.size(), 64)
 	for page_index in page_limit:
 		var page: String = str(pages[page_index])
-		if page.length() > 2000:
-			page = page.substr(0, 2000)
 		var matches: Array[RegExMatch] = regex.search_all(page)
 		if matches.is_empty():
 			if _dialogue_page_is_placeholder_spam(page):
@@ -909,7 +911,11 @@ func _resolve_dialogue_pages(pages: Array) -> Array:
 		for match in matches:
 			output += page.substr(cursor, match.get_start() - cursor)
 			var key: String = str(match.get_string(1)).to_upper().trim_prefix("0X")
-			output += str(values.get(key, ""))
+			if values.has(key):
+				output += str(values[key])
+			else:
+				# Keep unknown braces (do not delete mid-sentence fragments).
+				output += match.get_string(0)
 			cursor = match.get_end()
 		output += page.substr(cursor)
 		if _dialogue_page_is_placeholder_spam(output):
@@ -920,10 +926,12 @@ func _resolve_dialogue_pages(pages: Array) -> Array:
 	return resolved
 
 func _dialogue_page_is_placeholder_spam(page: String) -> bool:
+	# Only drop obvious Hoenn placeholder floods; never filter ordinary Kanto dialogue.
 	var upper: String = page.to_upper()
-	if upper.count("MAGMA") + upper.count("AQUA") + upper.count("MAXIE") + upper.count("ARCHIE") >= 6:
+	var team_hits: int = upper.count("MAGMA") + upper.count("AQUA") + upper.count("MAXIE") + upper.count("ARCHIE")
+	if team_hits >= 6 and page.count("{") + team_hits >= 8:
 		return true
-	if page.count("\n") >= 40:
+	if page.count("\n") >= 80:
 		return true
 	return false
 
@@ -1016,12 +1024,13 @@ func _on_dialog_state_received(open: bool) -> void:
 func _on_dialogue_action() -> void:
 	audio.play_effect("dialogue")
 	if server_dialogue_active:
-		if dialogue_overlay != null and not dialogue_overlay.text_complete():
+		if dialogue_overlay != null and dialogue_overlay.is_open():
+			var choice_commit: bool = dialogue_overlay.is_choice_open() and dialogue_overlay.text_complete()
 			dialogue_overlay.handle_action()
-			return
+			# Advance local pages / finish typing; choice emits choice_requested for the response path.
+			if dialogue_overlay.is_open() or choice_commit:
+				return
 		GameState.send_dialogue_action_response(server_dialogue_sequence, 0)
-		if dialogue_overlay != null:
-			dialogue_overlay.close_dialogue()
 		map_view.restore_interaction_facing()
 		return
 	if dialogue_overlay != null and dialogue_overlay.handle_action() and not dialogue_overlay.is_open():

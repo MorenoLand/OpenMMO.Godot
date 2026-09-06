@@ -332,7 +332,7 @@ func _populate_fire_red_object_sprites(object_sprites: Dictionary) -> void:
 		if palette_offset < 0:
 			continue
 		if not object_sprites.has(entry):
-			# FireRed town-map: OAM 32x16, overworld_frame tiles stored as 2x4 (16x32); remap 8x8 into 4x2.
+			# FireRed town-map: PNG 32x16, gbagfx -mwidth 2 -mheight 2 stores two 16x16 blocks as 16x32; OAM shows 32x16.
 			var storage_width: int = 16 if width == 32 and height == 16 else width
 			var storage_height: int = 32 if width == 32 and height == 16 else height
 			object_sprites[entry] = {"data_offset": first_data_offset, "width": width, "height": height, "storage_width": storage_width, "storage_height": storage_height, "frame_bytes": expected_bytes, "frame_count": frame_count, "palette_offset": palette_offset, "inanimate": inanimate}
@@ -2780,7 +2780,9 @@ func _decode_rom_text(text_offset: int) -> Dictionary:
 				pages.append(current)
 				current = ""
 			0xFA:
-				current += "\n"
+				# \l: wait/scroll in FR; page-break so multi-line boxes are not clipped mid-sentence.
+				pages.append(current)
+				current = ""
 			0xFD:
 				if cursor >= rom_data.size():
 					break
@@ -2887,7 +2889,8 @@ func _decode_rom_character(value: int) -> String:
 			return "/"
 		0xF0:
 			return ":"
-	return "{0x%02X}" % value
+	# Keep out of {..} placeholder grammar used by world._resolve_dialogue_pages.
+	return "?"
 
 func _placeholder_name(value: int) -> String:
 	return "{%02X}" % value
@@ -3001,18 +3004,17 @@ func render_object_sprite(graphics_id: int, frame: int = 0, flip_h: bool = false
 	if storage_width != width or storage_height != height:
 		image = Image.create(width, height, false, Image.FORMAT_RGBA8)
 		image.fill(Color(0, 0, 0, 0))
-		# Reshape 8x8 tiles keeping linear gbagfx order: storage 2x4 sheet -> display 4x2 (not 16x16 block LTR).
-		var tile: int = 8
-		var src_tiles_wide: int = storage_width / tile
-		var src_tiles_high: int = storage_height / tile
-		var dst_tiles_wide: int = width / tile
-		var tile_count: int = src_tiles_wide * src_tiles_high
-		for tile_index in range(tile_count):
-			var src_tx: int = tile_index % src_tiles_wide
-			var src_ty: int = int(tile_index / src_tiles_wide)
-			var dst_tx: int = tile_index % dst_tiles_wide
-			var dst_ty: int = int(tile_index / dst_tiles_wide)
-			image.blit_rect(storage_image, Rect2i(src_tx * tile, src_ty * tile, tile, tile), Vector2i(dst_tx * tile, dst_ty * tile))
+		# gbagfx -mwidth 2 -mheight 2: ROM is a vertical strip of 16x16 blocks; pack LTR into 32x16.
+		var block: int = 16
+		var blocks: int = int((storage_width * storage_height) / (block * block))
+		var storage_blocks_wide: int = storage_width / block
+		var display_blocks_wide: int = width / block
+		for block_index in range(blocks):
+			var src_bx: int = block_index % storage_blocks_wide
+			var src_by: int = int(block_index / storage_blocks_wide)
+			var dst_bx: int = block_index % display_blocks_wide
+			var dst_by: int = int(block_index / display_blocks_wide)
+			image.blit_rect(storage_image, Rect2i(src_bx * block, src_by * block, block, block), Vector2i(dst_bx * block, dst_by * block))
 	if flip_h:
 		image.flip_x()
 	var texture: ImageTexture = ImageTexture.create_from_image(image)
