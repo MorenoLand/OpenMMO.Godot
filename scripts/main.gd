@@ -7,6 +7,7 @@ var battle_screen: Control
 func _ready() -> void:
 	GameState.battle_event_received.connect(_on_battle_event)
 	GameState.dialog_action_received.connect(_on_dialog_action_received)
+	GameState.map_load_received.connect(_on_map_load_during_battle)
 	_show_auth()
 
 func _replace_screen(scene: PackedScene) -> Node:
@@ -68,6 +69,10 @@ func _on_dialog_action_received(_action: Dictionary) -> void:
 	if not battle_screen_active or not is_instance_valid(battle_screen):
 		return
 	if not GameState.battle_in_progress and bool(GameState.battle_state.get("battle_complete", false)):
+		_close_battle()
+
+func _on_map_load_during_battle(_map_load: Dictionary) -> void:
+	if battle_screen_active and not GameState.battle_in_progress:
 		_close_battle()
 
 func _show_local_preview() -> void:
