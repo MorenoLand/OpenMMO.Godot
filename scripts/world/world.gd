@@ -301,6 +301,10 @@ func _on_world_snapshot(value: Dictionary) -> void:
 	_sync_map_entities()
 
 func _on_map_load(value: Dictionary) -> void:
+	if dialogue_overlay != null and dialogue_overlay.is_open():
+		dialogue_overlay.close_dialogue()
+		map_view.set_dialogue_active(false)
+	server_dialogue_active = false
 	var map_id: String = str(value.get("local_map_id", ""))
 	if map_id.is_empty():
 		status_label.text = "OpenMMO did not provide a renderable map"
@@ -889,10 +893,15 @@ func _resolve_dialogue_pages(pages: Array) -> Array:
 	var regex: RegEx = RegEx.new()
 	regex.compile("\\{(0x[0-9A-Fa-f]{2}|[0-9A-Fa-f]{2}|[A-Za-z0-9_]+)\\}")
 	var resolved: Array = []
-	for page_value in pages:
-		var page: String = str(page_value)
+	var page_limit: int = mini(pages.size(), 24)
+	for page_index in page_limit:
+		var page: String = str(pages[page_index])
+		if page.length() > 2000:
+			page = page.substr(0, 2000)
 		var matches: Array[RegExMatch] = regex.search_all(page)
 		if matches.is_empty():
+			if _dialogue_page_is_placeholder_spam(page):
+				continue
 			resolved.append(page)
 			continue
 		var output: String = ""
@@ -903,8 +912,20 @@ func _resolve_dialogue_pages(pages: Array) -> Array:
 			output += str(values.get(key, ""))
 			cursor = match.get_end()
 		output += page.substr(cursor)
+		if _dialogue_page_is_placeholder_spam(output):
+			continue
 		resolved.append(output)
+	if resolved.is_empty() and not pages.is_empty():
+		resolved.append("...")
 	return resolved
+
+func _dialogue_page_is_placeholder_spam(page: String) -> bool:
+	var upper: String = page.to_upper()
+	if upper.count("MAGMA") + upper.count("AQUA") + upper.count("MAXIE") + upper.count("ARCHIE") >= 6:
+		return true
+	if page.count("\n") >= 40:
+		return true
+	return false
 
 func _dialogue_placeholder_values() -> Dictionary:
 	var character_name: String = str(GameState.current_character.get("name", ""))

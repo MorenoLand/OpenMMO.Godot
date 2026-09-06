@@ -1373,7 +1373,12 @@ func _update_player_texture() -> void:
 	var texture_key: String = "%d:%d:%d" % [player_facing, movement_key, frame_step]
 	if player_texture != null and player_texture_key == texture_key:
 		return
-	var sprite: Dictionary = content.render_facing_object_sprite(19, player_facing, movement_animation_active and movement_active, frame_step)
+	var sprite_content = content
+	var sprite: Dictionary = sprite_content.render_facing_object_sprite(19, player_facing, movement_animation_active and movement_active, frame_step)
+	if not bool(sprite.get("ok", false)) or sprite.get("texture") == null:
+		var kanto = GameState.content_for_region("kanto")
+		if kanto != null and kanto != sprite_content:
+			sprite = kanto.render_facing_object_sprite(19, player_facing, movement_animation_active and movement_active, frame_step)
 	player_texture = sprite.get("texture") as Texture2D
 	player_texture_key = texture_key if player_texture != null else ""
 
