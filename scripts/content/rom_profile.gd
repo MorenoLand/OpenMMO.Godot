@@ -57,6 +57,12 @@ static func _emerald_profile() -> Dictionary:
 	profile["object_event_graphics_count"] = 256
 	profile["player_object_graphics_id"] = 0
 	profile["player_object_graphics_id_female"] = 89
+	var format: Dictionary = profile.get("format", {})
+	format["battle_move_table_offset"] = 0x31C898
+	format["battle_animation_pic_table_offset"] = 0x524B44
+	format["battle_animation_palette_table_offset"] = 0x52544C
+	format["battle_animation_move_table_offset"] = 0x2C8D6C
+	profile["format"] = format
 	return profile
 
 static func _ruby_profile() -> Dictionary:

@@ -598,7 +598,7 @@ func _render_move_selection() -> void:
 		button.text = "%s\n%s    PP %d/%d" % [move_name, type_line, current_pp, max_pp]
 		button.tooltip_text = "Type: %s | Power: %d | Accuracy: %d" % [type_line, int(move_info.get("power", 0)), int(move_info.get("accuracy", 0))]
 		button.custom_minimum_size = Vector2(140, 44)
-		button.disabled = current_pp <= 0
+		button.disabled = max_pp > 0 and current_pp <= 0
 		button.pressed.connect(_send_move.bind(move_id))
 		_register_selection_button(button)
 		grid.add_child(button)
