@@ -229,7 +229,7 @@ func _add_character_card(character: Dictionary) -> void:
 	card.set_meta("character_id", character_id)
 	card.set_meta("map_id", local_map_id)
 	card.set_meta("available", _character_location_available(character))
-	card.set_meta("ready", local_map_id.is_empty() or warmed_map_ids.has(local_map_id))
+	card.set_meta("ready", bool(card.get_meta("available", false)))
 	card.mouse_filter = Control.MOUSE_FILTER_STOP
 	card.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND if bool(card.get_meta("available", false)) and bool(card.get_meta("ready", false)) else Control.CURSOR_ARROW
 	card.gui_input.connect(_on_character_card_gui_input.bind(card, character_id))
