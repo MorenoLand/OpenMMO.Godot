@@ -774,6 +774,78 @@ func battle_move_info(move_id: int) -> Dictionary:
 	battle_move_info_cache[cache_key] = info
 	return info
 
+func battle_growth_rate(species_id: int) -> int:
+	var table: int = _base_stats_table_offset()
+	if table < 0 or species_id <= 0:
+		return -1
+	var offset: int = table + _battle_internal_species_id(species_id) * 28 + 19
+	if not _valid_range(offset, 1):
+		return -1
+	var rate: int = int(rom_data[offset])
+	return rate if rate >= 0 and rate <= 5 else -1
+
+func battle_total_xp_for(growth_rate: int, level: int) -> int:
+	var n: int = clampi(level, 0, 100)
+	if n <= 1:
+		return n
+	var cube: int = n * n * n
+	match growth_rate:
+		1:
+			if n <= 50:
+				return int((100 - n) * cube / 50.0)
+			if n <= 68:
+				return int((150 - n) * cube / 100.0)
+			if n <= 98:
+				return int(int((1911 - 10 * n) / 3.0) * cube / 500.0)
+			return int((160 - n) * cube / 100.0)
+		2:
+			if n <= 15:
+				return int((int((n + 1) / 3.0) + 24) * cube / 50.0)
+			if n <= 36:
+				return int((n + 14) * cube / 50.0)
+			return int((int(n / 2.0) + 32) * cube / 50.0)
+		3:
+			return int(6 * cube / 5.0) - 15 * n * n + 100 * n - 140
+		4:
+			return int(4 * cube / 5.0)
+		5:
+			return int(5 * cube / 4.0)
+		_:
+			return cube
+
+func battle_exp_progress(species_id: int, level: int, xp: int) -> Dictionary:
+	var rate: int = battle_growth_rate(species_id)
+	if rate < 0:
+		return {"ok": false}
+	var clamped: int = clampi(level, 1, 100)
+	if clamped >= 100:
+		return {"ok": true, "ratio": 1.0, "into": 1, "span": 1, "remaining": 0}
+	var floor_xp: int = battle_total_xp_for(rate, clamped)
+	var next_xp: int = battle_total_xp_for(rate, clamped + 1)
+	var span: int = maxi(next_xp - floor_xp, 1)
+	var into: int = clampi(xp - floor_xp, 0, span)
+	return {"ok": true, "ratio": float(into) / float(span), "into": into, "span": span, "remaining": span - into}
+
+func _base_stats_table_offset() -> int:
+	var tables: Dictionary = _battle_rom_tables()
+	if tables.has("base_stats_table"):
+		return int(tables.get("base_stats_table", -1))
+	var configured: int = _format_int("pokemon_base_stats_offset", -1)
+	var offset: int = configured if configured >= 0 else _find_base_stats_table()
+	tables["base_stats_table"] = offset
+	return offset
+
+func _find_base_stats_table() -> int:
+	if rom_data.is_empty():
+		return -1
+	var limit: int = mini(rom_data.size() - 28 * 4, 0x500000)
+	var pos: int = 0x80000
+	while pos <= limit:
+		if int(rom_data[pos + 28]) == 45 and int(rom_data[pos + 29]) == 49 and int(rom_data[pos + 30]) == 49 and int(rom_data[pos + 31]) == 45 and int(rom_data[pos + 32]) == 65 and int(rom_data[pos + 33]) == 65 and int(rom_data[pos + 34]) == 12 and int(rom_data[pos + 35]) == 3 and int(rom_data[pos + 56]) == 60 and int(rom_data[pos + 57]) == 62 and int(rom_data[pos + 84]) == 80 and int(rom_data[pos + 85]) == 82:
+			return pos
+		pos += 4
+	return -1
+
 func battle_pokemon_sprite(species_id: int, back: bool = false) -> Dictionary:
 	if species_id <= 0:
 		return {"ok": false}

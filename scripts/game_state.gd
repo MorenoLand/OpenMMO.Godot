@@ -600,6 +600,7 @@ func _on_game_packet(opcode: int, payload: PackedByteArray) -> void:
 		battle_state["can_act"] = false
 		battle_state["force_switch"] = false
 		battle_in_progress = true
+		_hydrate_battle_party_xp()
 		_sync_current_party_from_battle()
 		battle_event_received.emit({"type": "field_state", "state": battle_state})
 	elif opcode == GAME_PROTOCOL_SCRIPT.BATTLE_BULK_STATE:
@@ -918,6 +919,9 @@ func _apply_pokemon_storage(packet: Dictionary) -> void:
 		pokemon["faint_flag"] = 1 if current_hp <= 0 else 0
 		party.append(pokemon)
 	current_character["party"] = party
+	if battle_in_progress:
+		_hydrate_battle_party_xp()
+		battle_event_received.emit({"type": "party_xp", "state": battle_state})
 	_update_character_list_entry()
 	character_state_changed.emit(current_character.duplicate(true))
 
@@ -1044,6 +1048,35 @@ func _party_member_index(party: Array, target: Dictionary) -> int:
 			return index
 	return target_slot if target_slot < party.size() else -1
 
+func _hydrate_battle_party_xp() -> void:
+	var party_value: Variant = current_character.get("party", [])
+	var battle_value: Variant = battle_state.get("player_party", [])
+	if not party_value is Array or not battle_value is Array:
+		return
+	var party: Array = party_value
+	var battle_party: Array = (battle_value as Array).duplicate(true)
+	var changed: bool = false
+	for index in battle_party.size():
+		if not battle_party[index] is Dictionary:
+			continue
+		var battle_mon: Dictionary = battle_party[index]
+		var member_index: int = _party_member_index(party, battle_mon)
+		if member_index < 0:
+			continue
+		var member: Dictionary = party[member_index]
+		if not battle_mon.has("xp") and member.has("xp"):
+			battle_mon["xp"] = int(member.get("xp", 0))
+			changed = true
+		if int(battle_mon.get("level", 0)) <= 0 and int(member.get("level", 0)) > 0:
+			battle_mon["level"] = int(member.get("level", 0))
+			changed = true
+		if int(battle_mon.get("species", battle_mon.get("dex_id", 0))) <= 0 and int(member.get("dex_id", 0)) > 0:
+			battle_mon["dex_id"] = int(member.get("dex_id", 0))
+			changed = true
+		battle_party[index] = battle_mon
+	if changed:
+		battle_state["player_party"] = battle_party
+
 func _sync_current_party_from_battle() -> void:
 	var battle_value: Variant = battle_state.get("player_party", [])
 	var current_value: Variant = current_character.get("party", [])
@@ -1070,6 +1103,12 @@ func _sync_current_party_from_battle() -> void:
 		var max_hp: int = int(battle_mon.get("max_hp", 0))
 		if max_hp > 0 and int(member.get("max_hp", 0)) != max_hp:
 			member["max_hp"] = max_hp
+			changed = true
+		if battle_mon.has("xp") and int(member.get("xp", -1)) != int(battle_mon.get("xp", 0)):
+			member["xp"] = int(battle_mon.get("xp", 0))
+			changed = true
+		if battle_mon.has("level") and int(member.get("level", -1)) != int(battle_mon.get("level", 0)):
+			member["level"] = int(battle_mon.get("level", 0))
 			changed = true
 		var faint_flag: int = 1 if current_hp <= 0 else 0
 		if int(member.get("faint_flag", -1)) != faint_flag:
@@ -1173,6 +1212,10 @@ func _apply_battle_entity_updates(entity_id: int, updates: Dictionary) -> void:
 			for key in ["current_hp", "species", "level", "gender", "faint_flag"]:
 				if updates.has(key):
 					mon[key] = updates[key]
+			if updates.has("experience_points"):
+				mon["xp"] = int(updates.get("experience_points", 0))
+			if updates.has("experience_level"):
+				mon["level"] = int(updates.get("experience_level", mon.get("level", 0)))
 			if updates.has("moves"):
 				var moves: Array = updates.get("moves", []) if updates.get("moves", []) is Array else []
 				var move_ids: Array = []

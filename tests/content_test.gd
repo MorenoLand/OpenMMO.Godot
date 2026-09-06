@@ -13,6 +13,11 @@ func _init() -> void:
 			push_error("ROM profile registry did not identify %s" % str(profile_case.get("code", "")))
 			quit(1)
 			return
+	var xp_content: OpenMMOContent = OpenMMOContent.new()
+	if xp_content.battle_total_xp_for(0, 100) != 1000000 or xp_content.battle_total_xp_for(3, 5) != 135 or xp_content.battle_total_xp_for(1, 50) != 125000:
+		push_error("Gen 3 experience curves do not match the decomp table")
+		quit(1)
+		return
 	var item_content: OpenMMOContent = OpenMMOContent.new()
 	var item_table_offset: int = 0x100
 	var item_count: int = 375

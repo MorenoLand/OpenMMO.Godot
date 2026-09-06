@@ -18,6 +18,7 @@ var player_name_label: Label
 var player_level_label: Label
 var player_hp_bar: ProgressBar
 var player_hp_label: Label
+var player_xp_bar: ProgressBar
 var opponent_sprite: TextureRect
 var player_sprite: TextureRect
 var effects_layer: Control
@@ -243,10 +244,18 @@ func _make_mon_card(opponent: bool) -> PanelContainer:
 		opponent_hp_bar = hp_bar
 		opponent_hp_label = hp_label
 	else:
+		var xp_bar := ProgressBar.new()
+		xp_bar.show_percentage = false
+		xp_bar.custom_minimum_size = Vector2(0.0, 8.0)
+		xp_bar.max_value = 1.0
+		xp_bar.add_theme_stylebox_override("background", _panel_style(Color("26303d"), Color("26303d"), 4, 0))
+		xp_bar.add_theme_stylebox_override("fill", _panel_style(Color("3d8be0"), Color("3d8be0"), 4, 0))
+		box.add_child(xp_bar)
 		player_name_label = name_label
 		player_level_label = level_label
 		player_hp_bar = hp_bar
 		player_hp_label = hp_label
+		player_xp_bar = xp_bar
 	return card
 
 func _make_sprite() -> TextureRect:
@@ -389,7 +398,7 @@ func _render_state() -> void:
 	var prompt: String = "Choose an action" if bool(state.get("can_act", false)) and not input_locked else _waiting_text()
 	state_label.text = "%s  |  %s vs %s  |  %s" % [phase, opponent_name, player_name, prompt]
 	_update_mon_card(opponent_name_label, opponent_level_label, opponent_hp_bar, opponent_hp_label, opponent, "opponent")
-	_update_mon_card(player_name_label, player_level_label, player_hp_bar, player_hp_label, player, "player")
+	_update_mon_card(player_name_label, player_level_label, player_hp_bar, player_hp_label, player, "player", player_xp_bar)
 	_update_sprite(opponent_sprite, opponent, false)
 	_update_sprite(player_sprite, player, true)
 	var battle_complete: bool = bool(state.get("battle_complete", false))
@@ -405,7 +414,7 @@ func _active_mon(party: Array, active_slot: int) -> Dictionary:
 		return party[active_slot] as Dictionary
 	return {}
 
-func _update_mon_card(name_label: Label, level_label: Label, hp_bar: ProgressBar, hp_label: Label, mon: Dictionary, tween_key: String) -> void:
+func _update_mon_card(name_label: Label, level_label: Label, hp_bar: ProgressBar, hp_label: Label, mon: Dictionary, tween_key: String, xp_bar: ProgressBar = null) -> void:
 	var level: int = int(mon.get("level", 0))
 	level_label.text = "Lv %d" % level if level > 0 else ""
 	var current_hp: int = int(mon.get("current_hp", mon.get("hp", 0)))
@@ -439,6 +448,29 @@ func _update_mon_card(name_label: Label, level_label: Label, hp_bar: ProgressBar
 			hp_bar.value = target_hp
 	_set_hp_display(float(hp_bar.value), hp_bar, hp_label, max_hp)
 	name_label.text = _battle_mon_name(mon, name_label == opponent_name_label)
+	if xp_bar == null:
+		return
+	var species_id: int = int(mon.get("species", mon.get("species_id", mon.get("dex_id", 0))))
+	var xp: int = int(mon.get("xp", mon.get("experience_points", -1)))
+	var progress: Dictionary = GameState.content.battle_exp_progress(species_id, level, xp) if GameState.content != null and xp >= 0 and species_id > 0 else {}
+	var ratio: float = float(progress.get("ratio", 0.0)) if bool(progress.get("ok", false)) else 0.0
+	xp_bar.tooltip_text = "%d XP to next level" % int(progress.get("remaining", 0)) if bool(progress.get("ok", false)) and level < 100 else "Level 100"
+	if not bool(xp_bar.get_meta("initialized", false)):
+		xp_bar.value = ratio
+		xp_bar.set_meta("initialized", true)
+		xp_bar.set_meta("target_xp", ratio)
+	else:
+		var previous_ratio: float = float(xp_bar.get_meta("target_xp", xp_bar.value))
+		if not is_equal_approx(previous_ratio, ratio):
+			var previous_tween: Tween = hp_tweens.get("player_xp") as Tween
+			if previous_tween != null:
+				previous_tween.kill()
+			xp_bar.set_meta("target_xp", ratio)
+			var xp_tween: Tween = create_tween()
+			hp_tweens["player_xp"] = xp_tween
+			xp_tween.tween_property(xp_bar, "value", ratio, 0.45).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+		else:
+			xp_bar.value = ratio
 
 func _set_hp_display(value: float, hp_bar: ProgressBar, hp_label: Label, max_hp: int) -> void:
 	var shown_hp: int = clampi(roundi(value), 0, max_hp)
