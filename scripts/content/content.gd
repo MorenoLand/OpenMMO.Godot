@@ -308,7 +308,7 @@ func _populate_fire_red_object_sprites(object_sprites: Dictionary) -> void:
 			continue
 		var expected_bytes: int = width * height / 2
 		var inanimate: bool = (_read_rom_u16(structure_offset + 0x0C) & 0x40) != 0
-		var max_frames: int = 1 if inanimate or (width <= 16 and height <= 16) else 9
+		var max_frames: int = 1 if inanimate else 9
 		var first_data_offset: int = -1
 		var frame_count: int = 0
 		for frame in range(max_frames):

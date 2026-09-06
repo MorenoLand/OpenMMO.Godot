@@ -725,7 +725,7 @@ func set_world_entities(values: Array, local_character_id: int) -> void:
 		var resolved_x: int = previous_position.x if retain_script_position or retain_idle_position else incoming_position.x
 		var resolved_y: int = previous_position.y if retain_script_position or retain_idle_position else incoming_position.y
 		var script_busy: bool = previous_scripted and not clear_script_position
-		var resolved_facing: int = int(previous.get("facing", facing)) if previous_active or script_busy else facing
+		var resolved_facing: int = int(previous.get("facing", facing)) if previous_active or script_busy or retain_idle_position else facing
 		var texture: Texture2D = previous.get("texture") as Texture2D
 		if texture == null or int(previous.get("graphics_id", -1)) != graphics_id or int(previous.get("facing", -1)) != resolved_facing:
 			var sprite: Dictionary = _sprite_content_for_region(sprite_region_id).render_facing_object_sprite(graphics_id, resolved_facing, false, 0)
@@ -738,6 +738,7 @@ func set_world_entities(values: Array, local_character_id: int) -> void:
 			resolved_facing = (movement_type - 64) + 1
 		var stored_entity: Dictionary = {"entity_key": entity_key, "entity_id": entity_id, "npc": is_npc, "map_id": entity_map_id, "texture": texture, "width": texture.get_width() if texture != null else 0, "height": texture.get_height() if texture != null else 0, "x": resolved_x, "y": resolved_y, "elevation": int(entity.get("elevation", 3)), "facing": resolved_facing, "default_facing": int(entity.get("facing", 1)), "graphics_id": graphics_id, "sprite_region_id": sprite_region_id, "blocks_movement": bool(entity.get("blocks_movement", is_npc)), "visible": true, "movement_scripted": script_busy, "movement_active": false, "movement_start": Vector2.ZERO, "movement_target": Vector2.ZERO, "movement_elapsed": 0.0, "movement_duration": 0.0, "movement_action": -1, "movement_animation": walk_in_place, "movement_frame": -1, "movement_queue": [], "movement_type": movement_type, "range_x": int(previous.get("range_x", (int(entity.get("unk4", 0)) >> 8) & 0xFF)), "range_y": int(previous.get("range_y", int(entity.get("unk4", 0)) & 0xFF)), "home_x": int(previous.get("home_x", incoming_position.x)), "home_y": int(previous.get("home_y", incoming_position.y)), "last_server_x": incoming_position.x, "last_server_y": incoming_position.y, "wait_elapsed": float(previous.get("wait_elapsed", 0.0)), "seq_index": int(previous.get("seq_index", 0)), "walk_in_place": walk_in_place, "pending_dir": int(previous.get("pending_dir", -1))}
 		stored_entity["battle"] = bool(entity.get("battle", false))
+		stored_entity["texture_facing"] = resolved_facing
 		for dynamic_key in ["visible", "movement_scripted", "movement_active", "movement_start", "movement_target", "movement_elapsed", "movement_duration", "movement_action", "movement_animation", "movement_frame", "movement_queue", "wait_elapsed", "seq_index", "pending_dir", "walk_in_place", "movement_type", "range_x", "range_y", "home_x", "home_y"]:
 			if previous.has(dynamic_key):
 				stored_entity[dynamic_key] = previous.get(dynamic_key)
@@ -926,14 +927,16 @@ func _update_world_entity_texture(entity: Dictionary) -> void:
 	if moving and float(entity.get("movement_duration", 0.0)) > 0.0:
 		frame_step = int(floorf(clampf(float(entity.get("movement_elapsed", 0.0)) / float(entity.get("movement_duration", 1.0)), 0.0, 0.999) * 4.0))
 	var movement_frame: int = frame_step if moving else -1
-	if int(entity.get("movement_frame", -2)) == movement_frame:
+	var facing: int = int(entity.get("facing", 1))
+	if int(entity.get("movement_frame", -2)) == movement_frame and int(entity.get("texture_facing", -1)) == facing:
 		return
-	var sprite: Dictionary = content.render_facing_object_sprite(int(entity.get("graphics_id", 19)), int(entity.get("facing", 1)), moving, frame_step)
+	var sprite: Dictionary = _sprite_content_for_region(int(entity.get("sprite_region_id", 1))).render_facing_object_sprite(int(entity.get("graphics_id", 19)), facing, moving, frame_step)
 	if bool(sprite.get("ok", false)):
 		entity["texture"] = sprite.get("texture")
 		entity["width"] = int(sprite.get("width", 0))
 		entity["height"] = int(sprite.get("height", 0))
 		entity["movement_frame"] = movement_frame
+		entity["texture_facing"] = facing
 
 func _process_world_entity_movements(delta: float) -> void:
 	var redraw_needed: bool = false
@@ -1206,7 +1209,7 @@ func _physical_direction() -> int:
 func _movement_objects() -> Array:
 	var result: Array = []
 	for object_value in objects:
-		if object_value is Dictionary and authoritative_state and str((object_value as Dictionary).get("kind", "")) == "object":
+		if object_value is Dictionary and authoritative_state and str((object_value as Dictionary).get("kind", "")) == "object" and not bool((object_value as Dictionary).get("inanimate", false)):
 			continue
 		result.append(object_value)
 	return result
@@ -1233,7 +1236,7 @@ func _request_move(direction: int) -> bool:
 		if not entity_value is Dictionary:
 			continue
 		var entity: Dictionary = entity_value
-		if bool(entity.get("npc", false)) and bool(entity.get("blocks_movement", true)) and str(entity.get("map_id", "")) == map_id:
+		if bool(entity.get("blocks_movement", bool(entity.get("npc", false)))) and str(entity.get("map_id", "")) == map_id:
 			occupied.append({"x": int(entity.get("x", -1)), "y": int(entity.get("y", -1)), "elevation": int(entity.get("elevation", player_elevation)), "collision": 1, "blocks_movement": true})
 	var destination: Vector2i = player_position + Vector2i(_direction_vector(direction))
 	if _movement_destination_occupied(occupied, destination):
