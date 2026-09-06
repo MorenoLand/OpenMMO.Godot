@@ -169,27 +169,28 @@ func restore_saved_rom() -> bool:
 	if not roms is Dictionary:
 		_clear_saved_rom()
 		return false
-	var path: String = ""
-	var region_key: String = ""
-	for key in ["hoenn", "kanto"]:
-		var candidate: String = str(roms.get(key, ""))
-		if not candidate.is_empty():
-			path = candidate
-			region_key = key
-			break
-	if path.is_empty():
-		return false
-	if not FileAccess.file_exists(path):
-		_clear_saved_rom_key(region_key)
-		content_failed.emit("The saved %s ROM was moved or removed; select it again." % region_key.capitalize())
-		return false
-	var result: Dictionary = OpenMMOContent.from_rom_path(path)
-	if bool(result.get("ok", false)):
-		var content: OpenMMOContent = result.get("content") as OpenMMOContent
-		_attach_saved_follower_source(content)
-		content_loaded.emit(content)
+	var loaded_any: bool = false
+	var last_error: String = ""
+	for key in ["kanto", "hoenn"]:
+		var path: String = str(roms.get(key, ""))
+		if path.is_empty():
+			continue
+		if not FileAccess.file_exists(path):
+			_clear_saved_rom_key(key)
+			last_error = "The saved %s ROM was moved or removed; select it again." % key.capitalize()
+			continue
+		var result: Dictionary = OpenMMOContent.from_rom_path(path)
+		if bool(result.get("ok", false)):
+			var content: OpenMMOContent = result.get("content") as OpenMMOContent
+			_attach_saved_follower_source(content)
+			content_loaded.emit(content)
+			loaded_any = true
+		else:
+			last_error = "The saved %s ROM could not be decoded: %s" % [key.capitalize(), str(result.get("error", "unknown content error"))]
+	if loaded_any:
 		return true
-	content_failed.emit("The saved %s ROM is still selected but could not be decoded: %s" % [region_key.capitalize(), str(result.get("error", "unknown content error"))])
+	if not last_error.is_empty():
+		content_failed.emit(last_error)
 	return false
 
 func _save_rom_path(path: String, region: String = "") -> void:
@@ -198,9 +199,6 @@ func _save_rom_path(path: String, region: String = "") -> void:
 	var key: String = region.strip_edges().to_lower()
 	if key.is_empty():
 		key = "kanto"
-	for wipe in ["kanto", "hoenn"]:
-		if wipe != key:
-			roms.erase(wipe)
 	roms[key] = path
 	settings["roms"] = roms
 	OpenMMOStorage.write_json(OpenMMOStorage.SETTINGS_FILE, settings)
@@ -213,13 +211,20 @@ func _on_follower_source_selected(path: String) -> void:
 			manager.popup_centered()
 		return
 	_save_follower_source_path(resolved_path)
-	if GameState.content != null:
-		var attached: Dictionary = GameState.content.set_follower_source(resolved_path)
-		if not bool(attached.get("ok", false)):
-			content_failed.emit(str(attached.get("error", "could not load follower sprites")))
+	if GameState.has_content():
+		var attached_ok: bool = false
+		var attach_error: String = ""
+		for content_value in GameState.all_contents():
+			var attached: Dictionary = content_value.set_follower_source(resolved_path)
+			if bool(attached.get("ok", false)):
+				attached_ok = true
+				content_loaded.emit(content_value)
+			else:
+				attach_error = str(attached.get("error", "could not load follower sprites"))
+		if not attached_ok:
+			content_failed.emit(attach_error if not attach_error.is_empty() else "could not load follower sprites")
 			return
 		_close_manager()
-		content_loaded.emit(GameState.content)
 	elif is_instance_valid(manager):
 		manager.popup_centered()
 

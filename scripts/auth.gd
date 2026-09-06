@@ -121,14 +121,14 @@ func _build_ui() -> void:
 	box.add_child(content_row)
 	content_status_label = Label.new()
 	content_status_label.name = "ContentStatus"
-	content_status_label.text = "Kanto ROM not selected"
+	content_status_label.text = "No ROMs selected"
 	content_status_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	content_status_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	content_status_label.add_theme_color_override("font_color", Color("aebbd0"))
 	content_row.add_child(content_status_label)
 	rom_button = Button.new()
 	rom_button.name = "ChooseRom"
-	rom_button.text = "Choose ROM"
+	rom_button.text = "Client Management"
 	rom_button.pressed.connect(_choose_rom)
 	_style_button(rom_button)
 	content_row.add_child(rom_button)
@@ -292,8 +292,8 @@ func _load_saved_credentials() -> void:
 	remember_input.button_pressed = true
 
 func _initialize_content() -> void:
-	if GameState.content != null:
-		_on_content_loaded(GameState.content)
+	if GameState.has_content():
+		_refresh_content_status()
 		return
 	if not provider.restore_saved_rom():
 		provider.choose(self)
@@ -349,29 +349,33 @@ func _choose_rom() -> void:
 func _on_content_loaded(content: OpenMMOContent) -> void:
 	var result: Dictionary = GameState.use_content(content)
 	if result.ok:
-		content_status_label.text = "Kanto · FireRed/LeafGreen ready"
-		content_status_label.add_theme_color_override("font_color", Color("89d6a3"))
-		rom_button.text = "Change ROM"
-		preview_button.disabled = false
+		_refresh_content_status()
 		_set_status("")
 	else:
 		_set_status(str(result.error), true)
 
 func _on_content_failed(message: String) -> void:
-	if GameState.content == null:
-		content_status_label.text = "Kanto ROM needs attention"
-		content_status_label.add_theme_color_override("font_color", Color("ffb36b"))
-		rom_button.text = "Choose ROM"
-		preview_button.disabled = true
+	_refresh_content_status()
 	_set_status(message, true)
 
+func _refresh_content_status() -> void:
+	var ready: PackedStringArray = GameState.content_regions_ready()
+	rom_button.text = "Client Management"
+	if ready.is_empty():
+		content_status_label.text = "No ROMs selected"
+		content_status_label.add_theme_color_override("font_color", Color("aebbd0"))
+		preview_button.disabled = true
+		return
+	content_status_label.text = "%s ready" % " / ".join(ready)
+	content_status_label.add_theme_color_override("font_color", Color("89d6a3"))
+	preview_button.disabled = false
+
 func _test_rom_locally() -> void:
-	if GameState.content == null:
-		_set_status("Select a compatible Kanto ROM first.", true)
+	if not GameState.has_content():
+		_set_status("Select a compatible ROM first.", true)
 		provider.choose(self)
 		return
 	local_preview_requested.emit()
-
 func _on_text_submitted(_text: String) -> void:
 	_submit()
 
@@ -384,8 +388,8 @@ func _submit() -> void:
 	if username.is_empty() or (password.is_empty() and token.is_empty()):
 		_set_status("Username and password are required.", true)
 		return
-	if GameState.content == null:
-		_set_status("Select a compatible Kanto ROM before signing in.", true)
+	if not GameState.has_content():
+		_set_status("Select at least one ROM (Kanto and/or Hoenn) before signing in.", true)
 		provider.choose(self)
 		return
 	var configured: Dictionary = GameState.configure_server(GameState.endpoint_text(), GameState.public_key_override())

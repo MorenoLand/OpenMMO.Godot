@@ -27,6 +27,7 @@ const FLOW_TIMEOUT_MSEC: int = 15000
 var login_session: Node
 var game_session: Node
 var content: OpenMMOContent
+var contents: Dictionary = {}
 var user: Dictionary = {}
 var characters: Array = []
 var current_snapshot: Dictionary = {}
@@ -110,8 +111,119 @@ func public_key_override() -> String:
 	return custom_root_public_key_path
 
 func use_content(value: OpenMMOContent) -> Dictionary:
-	content = value
+	if value == null:
+		return {"ok": false, "error": "content is missing"}
+	var region: String = str(value.source_profile.get("region", "")).strip_edges().to_lower()
+	if region.is_empty():
+		region = "kanto"
+	contents[region] = value
+	content = _preferred_content()
 	return {"ok": true}
+
+func has_content() -> bool:
+	return content != null or not contents.is_empty()
+
+func all_contents() -> Array:
+	var values: Array = []
+	for key in ["kanto", "hoenn"]:
+		if contents.has(key) and contents[key] != null:
+			values.append(contents[key])
+	for key in contents.keys():
+		if str(key) in ["kanto", "hoenn"]:
+			continue
+		if contents[key] != null:
+			values.append(contents[key])
+	return values
+
+func content_regions_ready() -> PackedStringArray:
+	var ready: PackedStringArray = PackedStringArray()
+	for key in ["kanto", "hoenn"]:
+		if contents.has(key) and contents[key] != null:
+			ready.append(str(key).capitalize())
+	return ready
+
+func content_for_region(region: String) -> OpenMMOContent:
+	var key: String = region.strip_edges().to_lower()
+	if contents.has(key):
+		return contents[key] as OpenMMOContent
+	return null
+
+func content_for_location(bank_id: int, map_id: int) -> OpenMMOContent:
+	var best: OpenMMOContent = null
+	var best_score: int = -1
+	for content_value in all_contents():
+		var score: int = _location_content_score(content_value, bank_id, map_id)
+		if score > best_score:
+			best_score = score
+			best = content_value
+	if best != null:
+		return best
+	return content
+
+func map_id_for_location(bank_id: int, map_id: int) -> String:
+	var chosen: OpenMMOContent = content_for_location(bank_id, map_id)
+	if chosen == null:
+		return ""
+	var local_bank: int = _local_bank_for_content(chosen, bank_id)
+	return chosen.map_id_for_location(local_bank, map_id)
+
+func map_data_for_location(bank_id: int, map_id: int) -> Dictionary:
+	var chosen: OpenMMOContent = content_for_location(bank_id, map_id)
+	if chosen == null:
+		return {}
+	var local_bank: int = _local_bank_for_content(chosen, bank_id)
+	var local_id: String = chosen.map_id_for_location(local_bank, map_id)
+	if local_id.is_empty():
+		return {}
+	return chosen.map_data(local_id)
+
+func activate_content_for_location(bank_id: int, map_id: int) -> OpenMMOContent:
+	var chosen: OpenMMOContent = content_for_location(bank_id, map_id)
+	if chosen != null:
+		content = chosen
+	return content
+
+func _preferred_content() -> OpenMMOContent:
+	if contents.has("kanto") and contents["kanto"] != null:
+		return contents["kanto"] as OpenMMOContent
+	if contents.has("hoenn") and contents["hoenn"] != null:
+		return contents["hoenn"] as OpenMMOContent
+	for value in contents.values():
+		if value != null:
+			return value as OpenMMOContent
+	return content
+
+func _local_bank_for_content(value: OpenMMOContent, bank_id: int) -> int:
+	if value == null:
+		return bank_id
+	var region: String = str(value.source_profile.get("region", "")).strip_edges().to_lower()
+	# OpenMMO server tags Hoenn banks with +50 (see OpenMMO-Client GbaTables.serverBankOffset).
+	if region == "hoenn" and bank_id >= 50:
+		return bank_id - 50
+	return bank_id
+
+func _location_content_score(value: OpenMMOContent, bank_id: int, map_id: int) -> int:
+	if value == null or bank_id < 0 or map_id < 0:
+		return -1
+	var region: String = str(value.source_profile.get("region", "")).strip_edges().to_lower()
+	var local_bank: int = _local_bank_for_content(value, bank_id)
+	var local_id: String = value.map_id_for_location(local_bank, map_id)
+	if local_id.is_empty():
+		return -1
+	var map_value: Dictionary = value.map_data(local_id)
+	if map_value.is_empty():
+		return -1
+	var name: String = str(map_value.get("name", "")).strip_edges()
+	var score: int = 1
+	if not name.is_empty() and name != "Unlisted area" and not name.begins_with("rom-map-"):
+		score += 10
+	if not local_id.begins_with("rom-map-"):
+		score += 5
+	if region == "hoenn" and bank_id >= 50:
+		score += 8
+	if region == "kanto" and bank_id < 50:
+		score += 8
+	return score
 
 func is_story_flag_set(region_id: int, flag_id: int) -> bool:
 	var region_value: Variant = story_flags.get(str(region_id), {})
@@ -190,6 +302,7 @@ func select_character(character_id: int) -> bool:
 			current_character = (character_value as Dictionary).duplicate(true)
 			if current_character.get("bag", []) is Array:
 				current_character["bag"] = _normalise_bag(current_character.get("bag", []))
+			activate_content_for_location(int(current_character.get("bank_id", -1)), int(current_character.get("map_id", -1)))
 			break
 	active_map_key = ""
 	pending_map_load.clear()
@@ -576,16 +689,19 @@ func _on_game_packet(opcode: int, payload: PackedByteArray) -> void:
 		if not response.ok:
 			connection_error.emit(str(response.get("error", "OpenMMO map packet is malformed")))
 			return
-		if content == null:
+		if not has_content():
 			connection_error.emit("Select a local ROM before entering the OpenMMO world")
 			return
-		var local_map_id: String = content.map_id_for_location(int(response.get("bank_id", -1)), int(response.get("map_id", -1)))
+		var bank_id: int = int(response.get("bank_id", -1))
+		var map_id: int = int(response.get("map_id", -1))
+		activate_content_for_location(bank_id, map_id)
+		var local_map_id: String = map_id_for_location(bank_id, map_id)
 		var custom_map_value: Variant = response.get("custom_map_gzip", PackedByteArray())
 		var has_custom_map: bool = custom_map_value is PackedByteArray and not (custom_map_value as PackedByteArray).is_empty()
 		if has_custom_map:
 			local_map_id = "server-map-%s" % str(response.get("key", ""))
-		elif content.map_data(local_map_id).is_empty():
-			connection_error.emit("The selected ROM does not contain OpenMMO map %d/%d" % [int(response.get("bank_id", -1)), int(response.get("map_id", -1))])
+		elif local_map_id.is_empty() or map_data_for_location(bank_id, map_id).is_empty():
+			connection_error.emit("No loaded ROM contains OpenMMO map %d/%d" % [bank_id, map_id])
 			return
 		response["local_map_id"] = local_map_id
 		server_maps[str(response.key)] = response
@@ -603,7 +719,7 @@ func _on_game_packet(opcode: int, payload: PackedByteArray) -> void:
 			connection_error.emit(str(response.get("error", "OpenMMO NPC spawn packet is malformed")))
 			return
 		var npc: Dictionary = response.entity
-		npc["map_id"] = content.map_id_for_location(int(npc.get("bank_id", -1)), int(npc.get("wire_map_id", -1))) if content != null else ""
+		npc["map_id"] = map_id_for_location(int(npc.get("bank_id", -1)), int(npc.get("wire_map_id", -1))) if has_content() else ""
 		entity_update_received.emit({"player": npc, "local": false, "spawn": true, "map_load_spawn": map_load_spawn_window})
 	elif opcode == GAME_PROTOCOL_SCRIPT.NPC_UPDATE:
 		var response: Dictionary = GAME_PROTOCOL_SCRIPT.decode_npc_update(payload)
@@ -641,7 +757,7 @@ func _on_game_packet(opcode: int, payload: PackedByteArray) -> void:
 			connection_error.emit(str(response.get("error", "OpenMMO entity packet is malformed")))
 			return
 		var player: Dictionary = response.entity
-		player["map_id"] = content.map_id_for_location(int(player.get("bank_id", -1)), int(player.get("wire_map_id", -1))) if content != null else ""
+				player["map_id"] = map_id_for_location(int(player.get("bank_id", -1)), int(player.get("wire_map_id", -1))) if has_content() else ""
 		player["character_id"] = int(player.get("entity_id", 0))
 		var is_local: bool = awaiting_local_entity
 		var current_character_id: int = int(current_character.get("id", 0))
@@ -686,8 +802,8 @@ func _on_game_packet(opcode: int, payload: PackedByteArray) -> void:
 func _emit_entity_update(entity: Dictionary) -> void:
 	var entity_id: int = int(entity.get("entity_id", 0))
 	entity["character_id"] = entity_id
-	if content != null and entity.has("bank_id") and entity.has("wire_map_id"):
-		entity["map_id"] = content.map_id_for_location(int(entity.get("bank_id", -1)), int(entity.get("wire_map_id", -1)))
+	if has_content() and entity.has("bank_id") and entity.has("wire_map_id"):
+		entity["map_id"] = map_id_for_location(int(entity.get("bank_id", -1)), int(entity.get("wire_map_id", -1)))
 	if entity_id == int(current_character.get("id", 0)):
 		for key in ["x", "y", "facing", "bank_id", "wire_map_id", "map_id"]:
 			if entity.has(key):
