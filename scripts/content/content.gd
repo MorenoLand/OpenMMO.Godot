@@ -222,10 +222,13 @@ func _region_map_section_name(section_id: int) -> String:
 	if section_id < 0:
 		return ""
 	var table_offset: int = _region_map_entries_table_offset()
-	var entry_offset: int = table_offset + section_id * 8
-	if table_offset < 0 or not _valid_range(entry_offset + 4, 4):
+	var section_index: int = section_id - int(source_profile.get("region_map_section_start", 0))
+	if section_index < 0:
 		return ""
-	var name_offset: int = _read_rom_pointer(entry_offset + 4)
+	var entry_offset: int = table_offset + section_index * 4
+	if table_offset < 0 or not _valid_range(entry_offset, 4):
+		return ""
+	var name_offset: int = _read_rom_pointer(entry_offset)
 	if name_offset < 0:
 		return ""
 	var output: String = ""
@@ -3209,10 +3212,7 @@ func render_facing_object_sprite(graphics_id: int, direction: int, moving: bool 
 	var object_sprites: Dictionary = _object_sprite_specs()
 	var resolved_id: int = graphics_id
 	if resolved_id < 0 or not object_sprites.has(resolved_id):
-		if object_sprites.has(16):
-			resolved_id = 16
-		else:
-			return {"ok": false, "error": "object graphics are not available for this graphics ID"}
+		return {"ok": false, "error": "object graphics are not available for this graphics ID"}
 	var spec: Dictionary = object_sprites.get(resolved_id, {})
 	if bool(spec.get("inanimate", false)):
 		return render_object_sprite(graphics_id, 0, false)
@@ -3239,10 +3239,7 @@ func render_object_sprite(graphics_id: int, frame: int = 0, flip_h: bool = false
 	var resolved_graphics_id: int = graphics_id
 	var object_sprites: Dictionary = _object_sprite_specs()
 	if resolved_graphics_id < 0 or not object_sprites.has(resolved_graphics_id):
-		if object_sprites.has(16):
-			resolved_graphics_id = 16
-		else:
-			return {"ok": false, "error": "object graphics are not available for this graphics ID"}
+		return {"ok": false, "error": "object graphics are not available for this graphics ID"}
 	var spec: Dictionary = object_sprites.get(resolved_graphics_id, {})
 	if spec.is_empty():
 		return {"ok": false, "error": "FireRed object graphics are not available for this graphics ID"}

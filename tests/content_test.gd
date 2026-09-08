@@ -19,15 +19,15 @@ func _init() -> void:
 			return
 	var map_name_content: OpenMMOContent = OpenMMOContent.new()
 	map_name_content.rom_data.resize(384)
-	map_name_content.source_profile = {"id": "test", "region": "Hoenn", "content_id": "test", "region_map_entries_signature": "AC470000AE470000B0470000", "region_map_entries_signature_pointer_delta": 0}
+	map_name_content.source_profile = {"id": "test", "region": "Kanto", "content_id": "test", "region_map_entries_signature": "AC470000AE470000B0470000", "region_map_entries_signature_pointer_delta": 0, "region_map_section_start": 88}
 	var map_name_signature: PackedByteArray = PackedByteArray([0xAC, 0x47, 0x00, 0x00, 0xAE, 0x47, 0x00, 0x00, 0xB0, 0x47, 0x00, 0x00])
 	for index in range(map_name_signature.size()):
 		map_name_content.rom_data[100 + index] = map_name_signature[index]
 	_write_u32(map_name_content.rom_data, 112, 0x080000C8)
-	_write_u32(map_name_content.rom_data, 204, 0x0800012C)
+	_write_u32(map_name_content.rom_data, 200, 0x0800012C)
 	for index in range(5):
 		map_name_content.rom_data[300 + index] = [0xCE, 0xBF, 0xCD, 0xCE, 0xFF][index]
-	var dynamic_map_name: String = map_name_content.call("_map_name_from_descriptor", {"map_group": 3, "map_index": 0, "region_map_section_id": 0, "floor_num": 0})
+	var dynamic_map_name: String = map_name_content.call("_map_name_from_descriptor", {"map_group": 3, "map_index": 0, "region_map_section_id": 88, "floor_num": 0})
 	if dynamic_map_name != "TEST":
 		push_error("ROM region-map name table did not resolve dynamically")
 		quit(1)
