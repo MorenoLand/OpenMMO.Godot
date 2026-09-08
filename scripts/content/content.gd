@@ -1564,6 +1564,10 @@ func _rgb555_color(value: int) -> Color:
 func map_data(map_id: String) -> Dictionary:
 	for map_value in manifest.get("maps", []):
 		if map_value is Dictionary and str(map_value.get("id", "")) == map_id:
+			if not map_value.has("music_id"):
+				var descriptor: Dictionary = _read_map_descriptor(map_value)
+				if bool(descriptor.get("ok", false)):
+					map_value["music_id"] = int(descriptor.get("music_id", 0))
 			return map_value
 	var reference: Dictionary = _map_reference_from_id(map_id)
 	if not reference.is_empty():

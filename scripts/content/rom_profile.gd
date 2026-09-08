@@ -65,7 +65,7 @@ static func _emerald_profile(code: String = "BPEE", revision: int = 0) -> Dictio
 	profile["object_event_graphics_count"] = 256
 	profile["player_object_graphics_id"] = 0
 	profile["player_object_graphics_id_female"] = 89
-	profile["battle_music"] = {"wild": 474, "trainer": 476}
+	profile["battle_music"] = {"wild": 474, "trainer": 476, "victory_wild": 353, "victory_trainer": 412}
 	var format: Dictionary = profile.get("format", {})
 	format["battle_move_table_offset"] = _gba_file_offset(int(row.get("battle_moves", 0)))
 	if code == "BPEE":
@@ -102,7 +102,7 @@ static func _fire_red_profile(catalog_code: String = "BPRE", revision: int = 0, 
 	profile["object_event_graphics_count"] = 152
 	profile["player_object_graphics_id"] = 0
 	profile["player_object_graphics_id_female"] = 7
-	profile["battle_music"] = {"wild": 298, "trainer": 297}
+	profile["battle_music"] = {"wild": 298, "trainer": 297, "victory_wild": 311, "victory_trainer": 310}
 	var format: Dictionary = _fire_red_format()
 	format["battle_move_table_offset"] = _gba_file_offset(int(row.get("battle_moves", 0)))
 	var background_tables: Dictionary = {"BPRD": 2419972, "BPRE": 2420388 if revision == 1 else 2420276, "BPRF": 2396736, "BPRI": 2391768, "BPRS": 2401696}

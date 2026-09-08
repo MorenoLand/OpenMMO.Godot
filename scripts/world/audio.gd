@@ -91,6 +91,20 @@ func restore_map_music() -> void:
 	battle_music_active = false
 	play_map_music(map_music_content, map_music_id)
 
+func play_victory_music(content: OpenMMOContent, state: Dictionary) -> void:
+	if content == null or not battle_music_active:
+		return
+	var opponents: Array = state.get("opponent_party", [])
+	if opponents.is_empty():
+		return
+	for mon in opponents:
+		if not mon is Dictionary or int(mon.get("current_hp", -1)) != 0:
+			return
+	var songs: Dictionary = content.source_profile.get("battle_music", {})
+	var song_id: int = int(songs.get("victory_trainer" if bool(state.get("trainer", false)) else "victory_wild", -1))
+	if song_id >= 0:
+		play_song(content, song_id)
+
 func play_song(content: OpenMMOContent, music_id: int) -> void:
 	if content == null or music_player == null:
 		return

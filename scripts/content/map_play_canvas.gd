@@ -298,7 +298,16 @@ func _story_hides_object(object: Dictionary) -> bool:
 	var hide_flag_id: int = int(object.get("hide_flag_id", 0))
 	if hide_flag_id <= 0:
 		return false
-	return GameState.is_story_flag_set(GameState.story_region_id, hide_flag_id)
+	if GameState.is_story_flag_set(GameState.story_region_id, hide_flag_id):
+		return true
+	var object_map_id: String = str(object.get("map_id", map_id))
+	var map_value: Dictionary = content.map_data(object_map_id) if content != null else {}
+	if int(map_value.get("map_group", -1)) != 4 or int(map_value.get("map_index", -1)) != 3:
+		return false
+	var scene: int = GameState.story_variable(GameState.story_region_id, 0x55, -1)
+	if hide_flag_id >= 40 and hide_flag_id <= 42:
+		return scene >= 3
+	return hide_flag_id == 45 and scene >= 4
 
 func _sprite_content_for_region(region_id: int) -> OpenMMOContent:
 	var region_content: OpenMMOContent = GameState.content_for_region("kanto") if region_id == 0 else GameState.content_for_region("hoenn") if region_id == 1 else null

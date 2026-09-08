@@ -762,9 +762,6 @@ func _render_actions() -> void:
 	for child in action_box.get_children():
 		child.queue_free()
 	if bool(state.get("battle_complete", false)):
-		var complete := Label.new()
-		complete.text = "Battle complete."
-		action_box.add_child(complete)
 		return
 	if input_locked or (not bool(state.get("can_act", false)) and not bool(state.get("force_switch", false))):
 		var waiting := Label.new()
@@ -1504,7 +1501,9 @@ func _apply_battle_event(value: Dictionary) -> void:
 		"battle_end":
 			input_locked = true
 			selection_mode = ""
-			_append_log("Battle complete.")
+			var world: Node = get_parent()
+			if world.get("audio") is OpenMMOAudio:
+				(world.get("audio") as OpenMMOAudio).play_victory_music(GameState.content, state)
 		"start_scene":
 			input_locked = true
 			initial_send_out_started = false

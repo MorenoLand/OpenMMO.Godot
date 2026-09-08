@@ -684,8 +684,6 @@ func _on_battle_event(value: Dictionary) -> void:
 			var battle_value: Variant = value.get("state", {})
 			trainer_battle_dialogue_pending = bool((battle_value as Dictionary).get("trainer", false)) if battle_value is Dictionary else false
 			audio.play_battle_music(GameState.content, trainer_battle_dialogue_pending)
-		"battle_end":
-			audio.restore_map_music()
 		"presence":
 			_sync_map_entities()
 
@@ -735,6 +733,8 @@ func _on_shop_closed() -> void:
 		map_view.set_input_enabled(true)
 
 func set_battle_overlay_active(value: bool) -> void:
+	if not value and audio != null and audio.battle_music_active:
+		audio.restore_map_music()
 	if map_view != null:
 		map_view.set_input_enabled(not value)
 
