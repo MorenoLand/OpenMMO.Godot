@@ -5,6 +5,7 @@ signal exit_requested
 const OPENMMO_BATTLE_HUD: Texture2D = preload("res://assets/openmmo/default/res/battle-hud.png")
 const OPENMMO_BATTLE_FONT = preload("res://assets/openmmo/default/res/fonts/battle.ttf")
 const OPENMMO_SHADOW_BIG: Texture2D = preload("res://assets/openmmo/default/shadow_big/shadow_big.png")
+const OPENMMO_BATTLE_BACKGROUNDS: Array[Texture2D] = [preload("res://assets/openmmo/default/textures/bg_00.png"), preload("res://assets/openmmo/default/textures/bg_01.png"), preload("res://assets/openmmo/default/textures/bg_02.png")]
 const BATTLE_HUD_AREAS: Dictionary = {
 	"health-progressbar.background": Rect2i(35, 8, 13, 6),
 	"health-progressbar.progressImage": Rect2i(20, 9, 1, 4),
@@ -41,10 +42,9 @@ var opponent_sprite: TextureRect
 var player_sprite: TextureRect
 var opponent_platform: TextureRect
 var player_platform: TextureRect
+var battle_background: TextureRect
 var effects_layer: Control
 var party_status_box: HBoxContainer
-var battle_viewport: SubViewport
-var battle_field_root: Node3D
 var battle_intro_tween: Tween
 var action_panel: PanelContainer
 var hp_tweens: Dictionary = {}
@@ -105,7 +105,15 @@ func _build_ui() -> void:
 	field.add_theme_stylebox_override("panel", _panel_style(Color("071015"), Color("071015"), 0, 0))
 	stage.add_child(field)
 	stage_root = field
-	stage_root.add_child(_make_battle_viewport())
+	battle_background = TextureRect.new()
+	battle_background.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	battle_background.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	battle_background.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	battle_background.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	battle_background.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	battle_background.texture = OPENMMO_BATTLE_BACKGROUNDS[0]
+	battle_background.z_index = -1
+	stage_root.add_child(battle_background)
 	var field_shade := ColorRect.new()
 	field_shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	field_shade.color = Color(0.02, 0.035, 0.025, 0.06)
@@ -237,44 +245,6 @@ func _build_ui() -> void:
 	flash_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	flash_overlay.z_index = 20
 	add_child(flash_overlay)
-
-func _make_battle_viewport() -> SubViewportContainer:
-	var container := SubViewportContainer.new()
-	container.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	container.stretch = true
-	container.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var viewport := SubViewport.new()
-	viewport.size = Vector2i(800, 450)
-	viewport.transparent_bg = false
-	viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
-	viewport.canvas_item_default_texture_filter = Viewport.DEFAULT_CANVAS_ITEM_TEXTURE_FILTER_NEAREST
-	container.add_child(viewport)
-	battle_viewport = viewport
-	battle_field_root = Node3D.new()
-	viewport.add_child(battle_field_root)
-	var environment := WorldEnvironment.new()
-	var world_environment := Environment.new()
-	world_environment.background_mode = Environment.BG_COLOR
-	world_environment.background_color = Color("2f8eaf")
-	world_environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	world_environment.ambient_light_color = Color("b9d6d2")
-	world_environment.ambient_light_energy = 0.85
-	environment.environment = world_environment
-	battle_field_root.add_child(environment)
-	var light := DirectionalLight3D.new()
-	light.light_color = Color("fff4df")
-	light.light_energy = 1.15
-	light.rotation_degrees = Vector3(-58.0, -28.0, 0.0)
-	battle_field_root.add_child(light)
-	var camera := Camera3D.new()
-	camera.projection = Camera3D.PROJECTION_PERSPECTIVE
-	camera.fov = 30.0
-	camera.near = 0.05
-	camera.far = 100.0
-	camera.look_at_from_position(Vector3(3.8, 3.2, 3.4), Vector3(0.0, 0.25, 0.0), Vector3.UP)
-	camera.current = true
-	battle_field_root.add_child(camera)
-	return container
 
 func _make_platform(size: Vector2) -> TextureRect:
 	var platform := TextureRect.new()
@@ -590,6 +560,7 @@ func _waiting_text() -> String:
 	return "Waiting for %s..." % _waiting_for_name()
 
 func _render_state() -> void:
+	_refresh_battle_background()
 	if state.is_empty():
 		state_label.text = "Waiting for server battle state..."
 		_render_actions()
@@ -612,6 +583,12 @@ func _render_state() -> void:
 	close_button.disabled = not battle_complete
 	close_button.visible = battle_complete
 	_render_actions()
+
+func _refresh_battle_background() -> void:
+	if battle_background == null:
+		return
+	var background_index: int = clampi(int(state.get("background", 0)), 0, OPENMMO_BATTLE_BACKGROUNDS.size() - 1)
+	battle_background.texture = OPENMMO_BATTLE_BACKGROUNDS[background_index]
 
 func _active_mon(party: Array, active_slot: int) -> Dictionary:
 	for mon_value in party:
