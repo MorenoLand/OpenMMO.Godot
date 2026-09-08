@@ -344,6 +344,7 @@ func _load_map_texture(map_id: String, expected_width: int = 0, expected_height:
 	if GameState.content == null or map_id.is_empty():
 		return false
 	if map_view != null and map_view.map_id == map_id and map_view.is_map_rendered(map_id):
+		audio.play_map_music(GameState.content, map_id)
 		return true
 	connected_world_generation += 1
 	var generation: int = connected_world_generation
@@ -552,6 +553,7 @@ func _on_entity_update(value: Dictionary) -> void:
 		_sync_map_entities()
 
 func _on_local_location_changed(next_map_id: String, x: int, y: int) -> void:
+	audio.play_map_music(GameState.content, next_map_id)
 	var facing: int = map_view.player_facing if map_view != null else int(GameState.current_character.get("facing", 1))
 	var elevation: int = map_view.player_elevation if map_view != null else int(GameState.current_character.get("elevation", 3))
 	var updated: bool = false
@@ -681,6 +683,9 @@ func _on_battle_event(value: Dictionary) -> void:
 		"field_state":
 			var battle_value: Variant = value.get("state", {})
 			trainer_battle_dialogue_pending = bool((battle_value as Dictionary).get("trainer", false)) if battle_value is Dictionary else false
+			audio.play_battle_music(GameState.content, trainer_battle_dialogue_pending)
+		"battle_end":
+			audio.restore_map_music()
 		"presence":
 			_sync_map_entities()
 

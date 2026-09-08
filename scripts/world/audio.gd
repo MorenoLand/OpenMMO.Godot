@@ -41,6 +41,9 @@ var cooperative_prepared: Dictionary = {}
 var cooperative_frame: int = 0
 var music_cache: Dictionary = {}
 var music_cache_order: Array[String] = []
+var battle_music_active: bool = false
+var map_music_content: OpenMMOContent
+var map_music_id: String = ""
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -62,12 +65,35 @@ func _exit_tree() -> void:
 		music_render_thread.wait_to_finish()
 
 func play_map_music(content, map_id: String) -> void:
+	map_music_content = content
+	map_music_id = map_id
+	if battle_music_active:
+		return
 	if content == null or map_id.is_empty() or music_player == null:
 		return
 	var map: Dictionary = content.map_data(map_id)
 	if map.is_empty():
 		return
 	var music_id: int = int(map.get("music_id", 0))
+	play_song(content, music_id)
+
+func play_battle_music(content: OpenMMOContent, trainer: bool) -> void:
+	if content == null:
+		return
+	var songs: Dictionary = content.source_profile.get("battle_music", {})
+	var song_id: int = int(songs.get("trainer" if trainer else "wild", -1))
+	if song_id < 0:
+		return
+	battle_music_active = true
+	play_song(content, song_id)
+
+func restore_map_music() -> void:
+	battle_music_active = false
+	play_map_music(map_music_content, map_music_id)
+
+func play_song(content: OpenMMOContent, music_id: int) -> void:
+	if content == null or music_player == null:
+		return
 	var fingerprint: String = content.rom_sha1 if not content.rom_sha1.is_empty() else str(content.rom_data.size())
 	var key: String = "%s:%s:%d" % [content.content_id(), fingerprint, music_id]
 	if key == current_music_key and (music_player.playing or rendering_music_key == key or requested_music_key == key or queued_music_key == key):
