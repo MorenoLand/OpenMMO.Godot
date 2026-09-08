@@ -17,7 +17,7 @@ func _init() -> void:
 	OpenMMOCodec.append_s16_le(payload, 12)
 	OpenMMOCodec.append_s16_le(payload, 13)
 	OpenMMOCodec.append_u8(payload, 3)
-	OpenMMOCodec.append_u8(payload, 2)
+	OpenMMOCodec.append_u8(payload, 1)
 	OpenMMOCodec.append_u8(payload, 0)
 	OpenMMOCodec.append_u8(payload, 1)
 	OpenMMOCodec.append_u8(payload, 0x1F)

@@ -1,6 +1,7 @@
 extends SceneTree
 
 const SESSION_SCRIPT: GDScript = preload("res://scripts/net/session.gd")
+const GAME_STATE_SCRIPT: GDScript = preload("res://scripts/game_state.gd")
 
 func _init() -> void:
 	if SESSION_SCRIPT == null:
@@ -190,7 +191,7 @@ func _character_list_fixture() -> PackedByteArray:
 	OpenMMOCodec.append_u8(output, 0)
 	OpenMMOCodec.append_s32_le(output, 0)
 	output.append_array(PackedByteArray([0, 0, 0, 0]))
-	output.append_array(PackedByteArray([0, 0xFF, 2, 0, 3]))
+	output.append_array(PackedByteArray([0xFF, 2, 0, 0, 3]))
 	OpenMMOCodec.append_s16_le(output, 4)
 	OpenMMOCodec.append_s16_le(output, 5)
 	OpenMMOCodec.append_s16_le(output, 6)
@@ -209,6 +210,7 @@ func _character_list_fixture() -> PackedByteArray:
 	return output
 
 func _test_battle_hp_event() -> bool:
+	var game_state = GAME_STATE_SCRIPT.new()
 	var payload: PackedByteArray = PackedByteArray()
 	OpenMMOCodec.append_s64_le(payload, 10)
 	OpenMMOCodec.append_s16_le(payload, 33)
@@ -229,29 +231,29 @@ func _test_battle_hp_event() -> bool:
 	if int(target.get("entity_id", 0)) != 20 or int(event.get("current_hp", -1)) != 14:
 		push_error("OpenMMO battle HP event did not decode")
 		return false
-	var previous_state: Dictionary = GameState.battle_state.duplicate(true)
-	var previous_character: Dictionary = GameState.current_character.duplicate(true)
-	GameState.current_character = {"party": [{"id": 10, "container_slot": 0, "hp": 20}]}
-	GameState.battle_state = {"player_party": [{"slot": 0, "entity_id": 10, "current_hp": 20, "max_hp": 20}], "opponent_party": [{"slot": 0, "entity_id": 20, "current_hp": 20, "max_hp": 20}]}
-	GameState.call("_apply_battle_move_event", decoded)
-	var opponent: Dictionary = GameState.battle_state.get("opponent_party", [])[0]
+	var previous_state: Dictionary = game_state.battle_state.duplicate(true)
+	var previous_character: Dictionary = game_state.current_character.duplicate(true)
+	game_state.current_character = {"party": [{"id": 10, "container_slot": 0, "hp": 20}]}
+	game_state.battle_state = {"player_party": [{"slot": 0, "entity_id": 10, "current_hp": 20, "max_hp": 20}], "opponent_party": [{"slot": 0, "entity_id": 20, "current_hp": 20, "max_hp": 20}]}
+	game_state.call("_apply_battle_move_event", decoded)
+	var opponent: Dictionary = game_state.battle_state.get("opponent_party", [])[0]
 	if int(opponent.get("current_hp", -1)) != 14:
-		GameState.battle_state = previous_state
-		GameState.current_character = previous_character
+		game_state.battle_state = previous_state
+		game_state.current_character = previous_character
 		push_error("OpenMMO battle HP event did not update battle state")
 		return false
-	GameState.call("_apply_battle_entity_delta", {"entity_id": 10, "updates": {"current_hp": 15}})
-	var synced_party_value: Variant = GameState.current_character.get("party", [])
+	game_state.call("_apply_battle_entity_delta", {"entity_id": 10, "updates": {"current_hp": 15}})
+	var synced_party_value: Variant = game_state.current_character.get("party", [])
 	if not synced_party_value is Array or (synced_party_value as Array).is_empty() or int((synced_party_value as Array)[0].get("current_hp", -1)) != 15 or int((synced_party_value as Array)[0].get("max_hp", -1)) != 20:
-		GameState.battle_state = previous_state
-		GameState.current_character = previous_character
+		game_state.battle_state = previous_state
+		game_state.current_character = previous_character
 		push_error("OpenMMO battle HP did not update the persistent party state")
 		return false
-	GameState.call("_apply_pokemon_storage", {"container": 1, "delete": false, "pokemon": [{"id": 10, "container_slot": 0, "dex_id": 4, "level": 5, "hp": 20}]})
-	var healed_party_value: Variant = GameState.current_character.get("party", [])
+	game_state.call("_apply_pokemon_storage", {"container": 1, "delete": false, "pokemon": [{"id": 10, "container_slot": 0, "dex_id": 4, "level": 5, "hp": 20}]})
+	var healed_party_value: Variant = game_state.current_character.get("party", [])
 	if not healed_party_value is Array or (healed_party_value as Array).is_empty() or int((healed_party_value as Array)[0].get("current_hp", -1)) != 20 or int((healed_party_value as Array)[0].get("max_hp", -1)) != 20:
-		GameState.battle_state = previous_state
-		GameState.current_character = previous_character
+		game_state.battle_state = previous_state
+		game_state.current_character = previous_character
 		push_error("OpenMMO party storage update did not update healed HP")
 		return false
 	var pp_payload: PackedByteArray = PackedByteArray()
@@ -259,11 +261,11 @@ func _test_battle_hp_event() -> bool:
 	OpenMMOCodec.append_u8(pp_payload, 1)
 	OpenMMOCodec.append_u8(pp_payload, 24)
 	var pp_event: Dictionary = OpenMMOGameProtocol.decode_entity_move_pp(pp_payload)
-	GameState.battle_state = {"player_party": [{"slot": 0, "entity_id": 10, "move_ids": [33, 45, 0, 0]}], "opponent_party": []}
-	GameState.call("_apply_battle_move_pp", pp_event)
-	var player: Dictionary = GameState.battle_state.get("player_party", [])[0]
-	GameState.battle_state = previous_state
-	GameState.current_character = previous_character
+	game_state.battle_state = {"player_party": [{"slot": 0, "entity_id": 10, "move_ids": [33, 45, 0, 0]}], "opponent_party": []}
+	game_state.call("_apply_battle_move_pp", pp_event)
+	var player: Dictionary = game_state.battle_state.get("player_party", [])[0]
+	game_state.battle_state = previous_state
+	game_state.current_character = previous_character
 	if not bool(pp_event.get("ok", false)) or int(pp_event.get("move_slot", -1)) != 1 or int(pp_event.get("pp", -1)) != 24 or int(player.get("move_pp", [])[1]) != 24:
 		push_error("OpenMMO move PP event did not decode and update battle state")
 		return false

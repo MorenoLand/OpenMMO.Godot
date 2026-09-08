@@ -120,8 +120,9 @@ func _warm_character_maps(values: Array) -> void:
 		var character: Dictionary = character_value
 		var bank_id: int = int(character.get("bank_id", -1))
 		var map_num: int = int(character.get("map_id", -1))
-		var region_content: OpenMMOContent = GameState.content_for_location(bank_id, map_num)
-		var map_id: String = GameState.map_id_for_location(bank_id, map_num)
+		var region_id: int = int(character.get("region_id", character.get("region", -1)))
+		var region_content: OpenMMOContent = GameState.content_for_location(bank_id, map_num, region_id)
+		var map_id: String = GameState.map_id_for_location(bank_id, map_num, region_id)
 		if region_content == null or map_id.is_empty() or warmed_map_ids.has(map_id) or warming_map_ids.has(map_id):
 			continue
 		warming_map_ids[map_id] = true
@@ -129,7 +130,7 @@ func _warm_character_maps(values: Array) -> void:
 		if not is_inside_tree() or selecting or not GameState.has_content():
 			warming_map_ids.erase(map_id)
 			return
-		region_content = GameState.content_for_location(bank_id, map_num)
+		region_content = GameState.content_for_location(bank_id, map_num, region_id)
 		if region_content == null:
 			warming_map_ids.erase(map_id)
 			continue
@@ -224,7 +225,7 @@ func _add_character_card(character: Dictionary) -> void:
 		slot_box.add_child(slot_label)
 		slot.tooltip_text = _party_slot_text(member) if not member.is_empty() else ""
 		party_box.add_child(slot)
-	var local_map_id: String = GameState.map_id_for_location(int(character.get("bank_id", -1)), int(character.get("map_id", -1))) if GameState.has_content() else ""
+	var local_map_id: String = GameState.map_id_for_location(int(character.get("bank_id", -1)), int(character.get("map_id", -1)), int(character.get("region_id", character.get("region", -1)))) if GameState.has_content() else ""
 	var character_id: int = int(character.get("id", 0))
 	card.set_meta("character_id", character_id)
 	card.set_meta("map_id", local_map_id)
@@ -275,10 +276,11 @@ func _character_location_available(character: Dictionary) -> bool:
 		return false
 	var bank_id: int = int(character.get("bank_id", -1))
 	var map_num: int = int(character.get("map_id", -1))
-	var local_map_id: String = GameState.map_id_for_location(bank_id, map_num)
+	var region_id: int = int(character.get("region_id", character.get("region", -1)))
+	var local_map_id: String = GameState.map_id_for_location(bank_id, map_num, region_id)
 	if local_map_id.is_empty():
 		return false
-	return not GameState.map_data_for_location(bank_id, map_num).is_empty()
+	return not GameState.map_data_for_location(bank_id, map_num, region_id).is_empty()
 
 func _character_texture() -> Texture2D:
 	if not GameState.has_content() or GameState.content == null:
@@ -291,10 +293,11 @@ func _location_text(character: Dictionary) -> String:
 		return "Unknown area"
 	var bank_id: int = int(character.get("bank_id", -1))
 	var map_num: int = int(character.get("map_id", -1))
-	var local_id: String = GameState.map_id_for_location(bank_id, map_num)
+	var region_id: int = int(character.get("region_id", character.get("region", -1)))
+	var local_id: String = GameState.map_id_for_location(bank_id, map_num, region_id)
 	if local_id.is_empty():
 		return "Unknown area"
-	var map_value: Dictionary = GameState.map_data_for_location(bank_id, map_num)
+	var map_value: Dictionary = GameState.map_data_for_location(bank_id, map_num, region_id)
 	var name: String = str(map_value.get("name", local_id)).strip_edges()
 	if name.is_empty():
 		return local_id

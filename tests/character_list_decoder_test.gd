@@ -1,0 +1,55 @@
+extends SceneTree
+
+const GAME_PROTOCOL: GDScript = preload("res://scripts/net/game_protocol.gd")
+
+func _init() -> void:
+	var result: Dictionary = GAME_PROTOCOL.decode_characters(_character_list_fixture())
+	var characters: Array = result.get("characters", [])
+	var character: Dictionary = characters[0] if not characters.is_empty() else {}
+	if not bool(result.get("ok", false)) or characters.size() != 1 or int(character.get("id", 0)) != 42 or str(character.get("name", "")) != "Hero" or int(character.get("money", 0)) != 123 or int(character.get("region_id", -1)) != 0 or int(character.get("bank_id", -1)) != 3 or int(character.get("map_id", -1)) != 4 or int(character.get("x", -1)) != 5 or int(character.get("y", -1)) != 6:
+		push_error("OpenMMO character list short codec decoding failed")
+		quit(1)
+		return
+	quit(0)
+
+func _character_list_fixture() -> PackedByteArray:
+	var output: PackedByteArray = PackedByteArray([1])
+	OpenMMOCodec.append_s64_le(output, 42)
+	OpenMMOCodec.append_utf16_le_null(output, "Hero")
+	OpenMMOCodec.append_utf16_le_null(output, "")
+	OpenMMOCodec.append_s32_le(output, 7)
+	OpenMMOCodec.append_u8(output, 0)
+	OpenMMOCodec.append_s32_le(output, 100)
+	OpenMMOCodec.append_s32_le(output, 50)
+	OpenMMOCodec.append_s32_le(output, 0)
+	OpenMMOCodec.append_u8(output, 0)
+	OpenMMOCodec.append_s32_le(output, 0)
+	OpenMMOCodec.append_s32_le(output, 123)
+	OpenMMOCodec.append_s16_le(output, 0)
+	OpenMMOCodec.append_s32_le(output, 0)
+	OpenMMOCodec.append_u8(output, 0)
+	OpenMMOCodec.append_u8(output, 0)
+	OpenMMOCodec.append_u8(output, 0)
+	OpenMMOCodec.append_s32_le(output, 0)
+	output.append_array(PackedByteArray([0, 0, 0, 0, 0, 0, 0, 0]))
+	OpenMMOCodec.append_s16_le(output, 0)
+	OpenMMOCodec.append_u8(output, 0)
+	OpenMMOCodec.append_s32_le(output, 0)
+	output.append_array(PackedByteArray([0, 0, 0, 0]))
+	output.append_array(PackedByteArray([0xFF, 2, 0, 0, 3]))
+	OpenMMOCodec.append_s16_le(output, 4)
+	OpenMMOCodec.append_s16_le(output, 5)
+	OpenMMOCodec.append_s16_le(output, 6)
+	OpenMMOCodec.append_u8(output, 0)
+	OpenMMOCodec.append_s16_le(output, 0)
+	OpenMMOCodec.append_s16_le(output, 0)
+	OpenMMOCodec.append_u8(output, 0)
+	OpenMMOCodec.append_s16_le(output, 0)
+	OpenMMOCodec.append_s16_le(output, 0)
+	OpenMMOCodec.append_u16_le(output, 0)
+	OpenMMOCodec.append_u8(output, 0)
+	OpenMMOCodec.append_u16_le(output, 0)
+	OpenMMOCodec.append_u16_le(output, 0)
+	OpenMMOCodec.append_bool(output, false)
+	OpenMMOCodec.append_u8(output, 0)
+	return output

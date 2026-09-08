@@ -5,6 +5,7 @@ const ROM_PROFILE_SCRIPT: GDScript = preload("res://scripts/content/rom_profile.
 const ANIMATION_PHASE_COUNT: int = 40
 
 const SCHEMA_VERSION: int = 1
+const MAP_NAME_CACHE_SCHEMA_VERSION: int = 1
 const KANTO_GBA_CONTENT_ID: String = "kanto-gba-slice-v1"
 const FIRE_RED_REV1_SHA1: String = "dd5945db9b930750cb39d00c84da8571feebf417"
 const FIRE_RED_SHA1: String = "41cb23d8dccc8ebd7c649cd8fbb58eeace6e2fdc"
@@ -93,6 +94,9 @@ var door_animation_texture_cache: Dictionary = {}
 var follower_sprite_cache: Dictionary = {}
 var follower_source_path: String = ""
 var string_catalog: Dictionary = {}
+var region_map_entries_offset: int = -2
+var region_map_name_cache: Dictionary = {}
+var region_map_name_cache_loaded: bool = false
 var detached_map_cache_result: Dictionary = {}
 
 static func from_rom_path(path: String) -> Dictionary:
@@ -178,61 +182,97 @@ static func _valid_data_range(data: PackedByteArray, offset: int, length: int) -
 
 static func _manifest_for_profile(profile: Dictionary, rom_sha1: String) -> Dictionary:
 	var source_game: String = str(profile.get("game", "Unknown"))
-	var maps: Array = []
-	var map_names: Array = profile.get("map_names", [])
-	var map_groups: Dictionary = profile.get("map_groups", {})
-	var towns_group: int = int(map_groups.get("towns_and_routes", MAP_GROUP_TOWNS_AND_ROUTES))
-	for map_index in range(map_names.size()):
-		var raw_name: String = map_names[map_index]
-		var map_id: String = _slugify_map_name(raw_name)
-		if map_id.is_empty():
-			map_id = "rom-map-%d-%d" % [towns_group, map_index]
-		maps.append({"id": map_id, "name": _pretty_map_name(raw_name), "map_group": towns_group, "map_index": map_index, "width": 0, "height": 0})
-	var extra_maps: Array = profile.get("extra_maps", [])
-	for extra_map in extra_maps:
-		maps.append({"id": str(extra_map.get("id", "")), "name": str(extra_map.get("name", "ROM map")), "map_group": int(extra_map.get("group", -1)), "map_index": int(extra_map.get("index", -1)), "width": 0, "height": 0})
-	return {"schema_version": SCHEMA_VERSION, "content_id": str(profile.get("content_id", "")), "source": {"profile_id": str(profile.get("id", "")), "game": source_game, "region": str(profile.get("region", "")), "revision": str(profile.get("revision", "")), "rom_sha1": rom_sha1}, "maps": maps}
-
-static func _pretty_map_name(raw_name: String) -> String:
-	var value: String = _split_map_identifier(raw_name.replace("_", " "))
-	if value.begins_with("Route ") or value.begins_with("Route"):
-		var route_value: String = value.trim_prefix("Route").strip_edges()
-		value = "Route " + route_value
-	return value
-
-static func _slugify_map_name(raw_name: String) -> String:
-	return _split_map_identifier(raw_name.replace("_", " ")).to_lower().replace(" ", "-").replace("--", "-")
-
-static func _split_map_identifier(raw_name: String) -> String:
-	var value: String = ""
-	for index in raw_name.length():
-		var ch: String = raw_name.substr(index, 1)
-		var is_upper: bool = ch.to_upper() == ch and ch.to_lower() != ch
-		var is_digit: bool = ch >= "0" and ch <= "9"
-		if index > 0 and (is_upper or is_digit):
-			var prev: String = raw_name.substr(index - 1, 1)
-			var prev_is_digit: bool = prev >= "0" and prev <= "9"
-			var prev_is_space: bool = prev == " " or prev == "-"
-			if not prev_is_space and ((is_upper and not prev_is_digit) or (is_digit and not prev_is_digit)):
-				value += " "
-		value += ch
-	return value.strip_edges()
+	return {"schema_version": SCHEMA_VERSION, "content_id": str(profile.get("content_id", "")), "source": {"profile_id": str(profile.get("id", "")), "game": source_game, "region": str(profile.get("region", "")), "revision": str(profile.get("revision", "")), "rom_sha1": rom_sha1}, "maps": []}
 
 func _map_name_from_descriptor(descriptor: Dictionary) -> String:
-	var section_id: int = int(descriptor.get("region_map_section_id", -1))
-	var section_start: int = int(source_profile.get("region_map_section_start", -1))
-	var section_names: Array = source_profile.get("region_map_section_names", [])
-	if section_start < 0 or section_id < section_start or section_id - section_start >= section_names.size():
-		return ""
-	var name: String = str(section_names[section_id - section_start]).strip_edges()
+	_load_region_map_name_cache()
+	var map_group: int = int(descriptor.get("map_group", -1))
+	var map_index: int = int(descriptor.get("map_index", -1))
+	var cache_key: String = "%d:%d" % [map_group, map_index]
+	if region_map_name_cache.has(cache_key):
+		return str(region_map_name_cache.get(cache_key, ""))
+	var name: String = _region_map_section_name(int(descriptor.get("region_map_section_id", -1)))
 	if name.is_empty():
 		return ""
 	var floor_num: int = int(descriptor.get("floor_num", 0))
-	if floor_num == 0:
-		return name
 	if floor_num == FLOOR_ROOFTOP:
-		return "%s Rooftop" % name
-	return "%s %s%dF" % [name, "B" if floor_num < 0 else "", absi(floor_num)]
+		name = "%s Rooftop" % name
+	elif floor_num != 0:
+		name = "%s %s%dF" % [name, "B" if floor_num < 0 else "", absi(floor_num)]
+	region_map_name_cache[cache_key] = name
+	_save_region_map_name_cache()
+	return name
+
+func _load_region_map_name_cache() -> void:
+	if region_map_name_cache_loaded:
+		return
+	region_map_name_cache_loaded = true
+	if rom_sha1.is_empty():
+		return
+	var cached: Dictionary = OpenMMOStorage.read_strings_cache(string_catalog_id(), "maps-%s" % rom_sha1)
+	if int(cached.get("schema_version", 0)) == MAP_NAME_CACHE_SCHEMA_VERSION and str(cached.get("rom_sha1", "")) == rom_sha1 and cached.get("names", null) is Dictionary:
+		region_map_name_cache = cached.get("names", {}) as Dictionary
+
+func _save_region_map_name_cache() -> void:
+	if rom_sha1.is_empty():
+		return
+	OpenMMOStorage.write_strings_cache(string_catalog_id(), "maps-%s" % rom_sha1, {"schema_version": MAP_NAME_CACHE_SCHEMA_VERSION, "content_id": content_id(), "catalog_id": string_catalog_id(), "rom_sha1": rom_sha1, "names": region_map_name_cache})
+
+func _region_map_section_name(section_id: int) -> String:
+	if section_id < 0:
+		return ""
+	var table_offset: int = _region_map_entries_table_offset()
+	var entry_offset: int = table_offset + section_id * 8
+	if table_offset < 0 or not _valid_range(entry_offset + 4, 4):
+		return ""
+	var name_offset: int = _read_rom_pointer(entry_offset + 4)
+	if name_offset < 0:
+		return ""
+	var output: String = ""
+	for position in range(64):
+		if not _valid_range(name_offset + position, 1):
+			break
+		var value: int = int(rom_data[name_offset + position])
+		if value == 0xFF:
+			break
+		output += _decode_rom_character(value)
+	return output.strip_edges()
+
+func _region_map_entries_table_offset() -> int:
+	if region_map_entries_offset != -2:
+		return region_map_entries_offset
+	region_map_entries_offset = int(source_profile.get("region_map_entries_table_offset", -1))
+	if region_map_entries_offset >= 0:
+		return region_map_entries_offset
+	var signature: String = str(source_profile.get("region_map_entries_signature", ""))
+	if signature.is_empty():
+		region_map_entries_offset = -1
+		return -1
+	var signature_offset: int = _find_rom_signature(signature)
+	if signature_offset < 0:
+		region_map_entries_offset = -1
+		return -1
+	var pointer_offset: int = signature_offset + signature.length() / 2 + int(source_profile.get("region_map_entries_signature_pointer_delta", 0))
+	region_map_entries_offset = _read_rom_pointer(pointer_offset)
+	return region_map_entries_offset
+
+func _find_rom_signature(signature: String) -> int:
+	var normalized: String = signature.replace(" ", "").to_upper()
+	if normalized.is_empty() or normalized.length() % 2 != 0:
+		return -1
+	var pattern_size: int = normalized.length() / 2
+	if pattern_size > rom_data.size():
+		return -1
+	for offset in range(rom_data.size() - pattern_size + 1):
+		var matched: bool = true
+		for index in range(pattern_size):
+			var token: String = normalized.substr(index * 2, 2)
+			if token != "XX" and token.hex_to_int() != int(rom_data[offset + index]):
+				matched = false
+				break
+		if matched:
+			return offset
+	return -1
 
 func _fallback_map_name(map_group: int, map_index: int, map_type: int, section_id: int) -> String:
 	for map_value in manifest.get("maps", []):
@@ -364,6 +404,8 @@ func _populate_fire_red_object_sprites(object_sprites: Dictionary) -> void:
 
 func _hydrate_manifest() -> void:
 	var maps: Array = manifest.get("maps", [])
+	if maps.is_empty():
+		maps = _enumerate_rom_maps()
 	for map_index in range(maps.size()):
 		if not maps[map_index] is Dictionary:
 			continue
@@ -374,12 +416,36 @@ func _hydrate_manifest() -> void:
 			map_value["height"] = int(descriptor.get("height", 0))
 			map_value["music_id"] = int(descriptor.get("music_id", 0))
 			map_value["map_type"] = int(descriptor.get("map_type", 0))
+			map_value["region_map_section_id"] = int(descriptor.get("region_map_section_id", -1))
+			map_value["floor_num"] = int(descriptor.get("floor_num", 0))
 			var source_name: String = _map_name_from_descriptor(descriptor)
 			var current_name: String = str(map_value.get("name", "")).strip_edges()
-			if not source_name.is_empty() and (current_name.begins_with("ROM map ") or current_name.is_empty() or current_name == "Unlisted area"):
+			if not source_name.is_empty() and (current_name.is_empty() or current_name == "Unlisted area" or current_name.begins_with("ROM map ")):
 				map_value["name"] = source_name
 		maps[map_index] = map_value
 	manifest["maps"] = maps
+
+func _enumerate_rom_maps() -> Array:
+	var maps: Array = []
+	var map_groups_offset: int = int(source_profile.get("map_groups_offset", -1))
+	if map_groups_offset < 0:
+		return maps
+	var map_header_size: int = _format_int("map_header_size", MAP_HEADER_SIZE)
+	for map_group in range(64):
+		var group_table_offset: int = _read_rom_pointer(map_groups_offset + map_group * 4)
+		if group_table_offset < 0:
+			break
+		var map_count: int = 0
+		while map_count < 256:
+			var header_offset: int = _read_rom_pointer(group_table_offset + map_count * 4)
+			if header_offset < 0 or not _valid_range(header_offset, map_header_size):
+				break
+			var descriptor: Dictionary = _read_map_descriptor({"map_group": map_group, "map_index": map_count})
+			if not bool(descriptor.get("ok", false)):
+				break
+			maps.append({"id": "rom-map-%d-%d" % [map_group, map_count], "name": "", "map_group": map_group, "map_index": map_count, "width": int(descriptor.get("width", 0)), "height": int(descriptor.get("height", 0)), "music_id": int(descriptor.get("music_id", 0)), "map_type": int(descriptor.get("map_type", 0)), "region_map_section_id": int(descriptor.get("region_map_section_id", -1)), "floor_num": int(descriptor.get("floor_num", 0))})
+			map_count += 1
+	return maps
 
 func _map_reference_from_id(map_id: String) -> Dictionary:
 	var parts: PackedStringArray = map_id.split("-")

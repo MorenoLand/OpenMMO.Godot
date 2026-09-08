@@ -22,7 +22,7 @@ func _ready() -> void:
 	audio = OpenMMOAudio.new()
 	add_child(audio)
 	started_at = Time.get_ticks_msec()
-	audio.play_map_music(content, "pallet-town")
+	audio.play_map_music(content, "rom-map-3-0")
 
 func _process(delta: float) -> void:
 	if audio == null:

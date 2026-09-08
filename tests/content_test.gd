@@ -13,6 +13,38 @@ func _init() -> void:
 			push_error("ROM profile registry did not identify %s" % str(profile_case.get("code", "")))
 			quit(1)
 			return
+		if profile.has("map_names") or profile.has("extra_maps"):
+			push_error("ROM profile retained authored map names")
+			quit(1)
+			return
+	var map_name_content: OpenMMOContent = OpenMMOContent.new()
+	map_name_content.rom_data.resize(384)
+	map_name_content.source_profile = {"id": "test", "region": "Hoenn", "content_id": "test", "region_map_entries_signature": "AC470000AE470000B0470000", "region_map_entries_signature_pointer_delta": 0}
+	var map_name_signature: PackedByteArray = PackedByteArray([0xAC, 0x47, 0x00, 0x00, 0xAE, 0x47, 0x00, 0x00, 0xB0, 0x47, 0x00, 0x00])
+	for index in range(map_name_signature.size()):
+		map_name_content.rom_data[100 + index] = map_name_signature[index]
+	_write_u32(map_name_content.rom_data, 112, 0x080000C8)
+	_write_u32(map_name_content.rom_data, 204, 0x0800012C)
+	for index in range(5):
+		map_name_content.rom_data[300 + index] = [0xCE, 0xBF, 0xCD, 0xCE, 0xFF][index]
+	var dynamic_map_name: String = map_name_content.call("_map_name_from_descriptor", {"map_group": 3, "map_index": 0, "region_map_section_id": 0, "floor_num": 0})
+	if dynamic_map_name != "TEST":
+		push_error("ROM region-map name table did not resolve dynamically")
+		quit(1)
+		return
+	var map_catalog_content: OpenMMOContent = OpenMMOContent.new()
+	map_catalog_content.rom_data.resize(256)
+	map_catalog_content.source_profile = {"map_groups_offset": 16, "format": {"map_header_size": 0x1C}}
+	_write_gba_pointer(map_catalog_content.rom_data, 16, 64)
+	_write_gba_pointer(map_catalog_content.rom_data, 64, 80)
+	_write_gba_pointer(map_catalog_content.rom_data, 80, 120)
+	map_catalog_content.rom_data[120] = 2
+	map_catalog_content.rom_data[124] = 2
+	var map_catalog: Array = map_catalog_content.call("_enumerate_rom_maps")
+	if map_catalog.size() != 1 or str((map_catalog[0] as Dictionary).get("id", "")) != "rom-map-0-0":
+		push_error("ROM map catalog did not enumerate numeric map identities")
+		quit(1)
+		return
 	var xp_content: OpenMMOContent = OpenMMOContent.new()
 	if xp_content.battle_total_xp_for(0, 100) != 1000000 or xp_content.battle_total_xp_for(3, 5) != 135 or xp_content.battle_total_xp_for(1, 50) != 125000:
 		push_error("Gen 3 experience curves do not match the decomp table")
@@ -34,7 +66,7 @@ func _init() -> void:
 	var potion_name: PackedByteArray = PackedByteArray([0xCA, 0xC9, 0xCE, 0xC3, 0xC9, 0xC8, 0xFF])
 	for position in range(potion_name.size()):
 		item_content.rom_data[item_table_offset + 44 + position] = potion_name[position]
-	var parcel_name: PackedByteArray = PackedByteArray([0xC9, 0xBB, 0xC5, 0xB4, 0xCD, 0x00, 0xCA, 0xBB, 0xCC, 0xBD, 0xBF, 0xBB, 0xC6, 0xFF])
+	var parcel_name: PackedByteArray = PackedByteArray([0xC9, 0xBB, 0xC5, 0xB4, 0xCD, 0x00, 0xCA, 0xBB, 0xCC, 0xBD, 0xBF, 0xC6, 0xFF])
 	var parcel_offset: int = item_table_offset + 349 * 44
 	for position in range(parcel_name.size()):
 		item_content.rom_data[parcel_offset + position] = parcel_name[position]
@@ -97,7 +129,7 @@ func _init() -> void:
 		quit(1)
 		return
 	for door_frame_index in range(1, 4):
-		var door_frame: Dictionary = content.door_animation_frame("pallet-town", 6, 7, door_frame_index)
+		var door_frame: Dictionary = content.door_animation_frame("rom-map-3-0", 6, 7, door_frame_index)
 		var door_texture: Texture2D = door_frame.get("texture") as Texture2D
 		if not bool(door_frame.get("ok", false)) or door_texture == null or door_texture.get_width() != 16 or door_texture.get_height() not in [16, 32]:
 			push_error("FireRed door animation frame %d was not decoded" % door_frame_index)
@@ -146,7 +178,7 @@ func _init() -> void:
 		push_error("graphics-patched compatible ROM was rejected: %s" % str(patched_result.get("error", "unknown error")))
 		quit(1)
 		return
-	for extra_map_id in ["rom-map-3-2", "rom-map-3-20", "viridian-forest", "pallet-players-house-1f", "viridian-pokemon-center-1f"]:
+	for extra_map_id in ["rom-map-3-2", "rom-map-3-20", "rom-map-1-0", "rom-map-4-0", "rom-map-5-4"]:
 		var extra_result: Dictionary = content.render_map(extra_map_id)
 		if not bool(extra_result.get("ok", false)):
 			push_error("additional map render failed for %s: %s" % [extra_map_id, str(extra_result.get("error", "unknown error"))])
@@ -154,7 +186,7 @@ func _init() -> void:
 			return
 	var preview_phase: int = clampi(int(OS.get_environment("OPENMMOGO_PREVIEW_PHASE")), 0, 39)
 	var preview_map: String = OS.get_environment("OPENMMOGO_PREVIEW_MAP")
-	for expected_map in [{"id": "pallet-town", "width": 384, "height": 320}, {"id": "route-1", "width": 384, "height": 640}, {"id": "viridian-city", "width": 768, "height": 640}]:
+	for expected_map in [{"id": "rom-map-3-0", "width": 384, "height": 320}, {"id": "rom-map-3-19", "width": 384, "height": 640}, {"id": "rom-map-3-1", "width": 768, "height": 640}]:
 		var map_id: String = str(expected_map.get("id", ""))
 		var render_result: Dictionary = content.render_map(map_id, preview_phase)
 		if not bool(render_result.get("ok", false)):
@@ -177,29 +209,29 @@ func _init() -> void:
 			quit(1)
 			return
 		var preview_path: String = OS.get_environment("OPENMMOGO_PREVIEW_PNG")
-		var should_save_preview: bool = map_id == "pallet-town" if preview_map.is_empty() else map_id == preview_map
+		var should_save_preview: bool = map_id == "rom-map-3-0" if preview_map.is_empty() else map_id == preview_map
 		if not preview_path.is_empty() and should_save_preview:
 			image.save_png(preview_path)
-		if map_id == "pallet-town" and (render_result.get("objects", []) as Array).size() < 3:
+		if map_id == "rom-map-3-0" and (render_result.get("objects", []) as Array).size() < 3:
 			push_error("Pallet Town object events were not decoded")
 			quit(1)
 			return
-		if map_id == "pallet-town":
+		if map_id == "rom-map-3-0":
 			for y in image.get_height():
 				for x in image.get_width():
 					if image.get_pixel(x, y) == Color(1, 0, 1):
 						push_error("Pallet Town contains an unmapped magenta palette pixel")
 						quit(1)
 						return
-		if map_id == "viridian-city":
+		if map_id == "rom-map-3-1":
 			for y in range(image.get_height()):
 				for x in range(image.get_width()):
 					if image.get_pixel(x, y) == Color(0, 0, 1):
 						push_error("Viridian City contains a secondary palette placeholder-blue pixel")
 						quit(1)
 						return
-	var static_result: Dictionary = content.render_map("pallet-town", 0)
-	var animated_result: Dictionary = content.render_map("pallet-town", 7)
+	var static_result: Dictionary = content.render_map("rom-map-3-0", 0)
+	var animated_result: Dictionary = content.render_map("rom-map-3-0", 7)
 	var static_image: Image = static_result.get("image") as Image
 	var animated_image: Image = animated_result.get("image") as Image
 	var differing_pixels: int = 0
@@ -211,7 +243,7 @@ func _init() -> void:
 		push_error("map animation did not change any pixels")
 		quit(1)
 		return
-	var pallet_result: Dictionary = content.render_map("pallet-town")
+	var pallet_result: Dictionary = content.render_map("rom-map-3-0")
 	if (pallet_result.get("connections", []) as Array).size() != 2 or (pallet_result.get("warps", []) as Array).size() != 3:
 		push_error("Pallet Town connections or warps were not decoded")
 		quit(1)
@@ -220,7 +252,7 @@ func _init() -> void:
 		push_error("map render did not expose separated draw layers")
 		quit(1)
 		return
-	var prepared_result: Dictionary = content.prepare_map("pallet-town")
+	var prepared_result: Dictionary = content.prepare_map("rom-map-3-0")
 	if prepared_result.get("background_texture") == null or prepared_result.get("foreground_texture") == null or animated_result.get("background_texture") == null or animated_result.get("foreground_texture") == null:
 		push_error("world renderer did not prepare cached ROM compositor layers")
 		quit(1)
@@ -228,7 +260,7 @@ func _init() -> void:
 	var animated_background_metatiles: Array = prepared_result.get("animated_background_tiles", [])
 	var animated_foreground_metatiles: Array = prepared_result.get("animated_foreground_tiles", [])
 	var animated_metatile: Dictionary = animated_background_metatiles[0] if not animated_background_metatiles.is_empty() else animated_foreground_metatiles[0] if not animated_foreground_metatiles.is_empty() else {}
-	var animated_metatile_texture: Texture2D = content.animated_metatile_texture("pallet-town", animated_metatile, 7, animated_background_metatiles.is_empty()) if not animated_metatile.is_empty() else null
+	var animated_metatile_texture: Texture2D = content.animated_metatile_texture("rom-map-3-0", animated_metatile, 7, animated_background_metatiles.is_empty()) if not animated_metatile.is_empty() else null
 	if animated_metatile_texture == null:
 		push_error("world renderer did not prepare a ROM-backed animated metatile replacement")
 		quit(1)
@@ -241,7 +273,7 @@ func _init() -> void:
 					push_error("animated background metatile contains transparent flicker pixels")
 					quit(1)
 					return
-	var connected_world: Dictionary = content.prepare_connected_world("pallet-town")
+	var connected_world: Dictionary = content.prepare_connected_world("rom-map-3-0")
 	var connected_regions: Array = connected_world.get("regions", [])
 	if not bool(connected_world.get("ok", false)) or connected_regions.size() < 3:
 		push_error("Pallet Town connected overworld was not assembled")
@@ -249,7 +281,7 @@ func _init() -> void:
 		return
 	var connected_root_ready: bool = false
 	for region_value in connected_regions:
-		if region_value is Dictionary and str(region_value.get("map_id", "")) == "pallet-town" and bool(region_value.get("ready", false)) and region_value.get("background_texture") != null:
+		if region_value is Dictionary and str(region_value.get("map_id", "")) == "rom-map-3-0" and bool(region_value.get("ready", false)) and region_value.get("background_texture") != null:
 			connected_root_ready = true
 			break
 	if not connected_root_ready:
@@ -273,12 +305,12 @@ func _init() -> void:
 			push_error("connected overworld placed %s at the wrong offset" % target_map_id)
 			quit(1)
 			return
-	var house_result: Dictionary = content.render_map("pallet-players-house-1f")
-	if content.has_animated_tiles("pallet-players-house-1f"):
+	var house_result: Dictionary = content.render_map("rom-map-4-0")
+	if content.has_animated_tiles("rom-map-4-0"):
 		push_error("indoor Building tileset was incorrectly marked as animated")
 		quit(1)
 		return
-	var house_phase_result: Dictionary = content.render_map("pallet-players-house-1f", 7)
+	var house_phase_result: Dictionary = content.render_map("rom-map-4-0", 7)
 	var house_image: Image = house_result.get("image") as Image
 	var house_phase_image: Image = house_phase_result.get("image") as Image
 	if house_image == null or house_phase_image == null or house_image.get_data() != house_phase_image.get_data():
@@ -300,7 +332,7 @@ func _init() -> void:
 		push_error("Pallet Town Mom did not resolve to the source graphics record")
 		quit(1)
 		return
-	var dialogue: Dictionary = content.interaction_at("pallet-players-house-1f", 8, 5, 2, 3, house_result.get("objects", []))
+	var dialogue: Dictionary = content.interaction_at("rom-map-4-0", 8, 5, 2, 3, house_result.get("objects", []))
 	if not bool(dialogue.get("ok", false)) or (dialogue.get("pages", []) as Array).is_empty() or str(dialogue.get("text", "")).is_empty():
 		push_error("object interaction did not produce decoded ROM dialogue")
 		quit(1)
@@ -309,13 +341,13 @@ func _init() -> void:
 		push_error("player-house Mom interaction selected Daisy's grooming dialogue")
 		quit(1)
 		return
-	var sign_dialogue: Dictionary = content.interaction_at("pallet-players-house-1f", 6, 2, 2, 3, house_result.get("objects", []))
+	var sign_dialogue: Dictionary = content.interaction_at("rom-map-4-0", 6, 2, 2, 3, house_result.get("objects", []))
 	if not bool(sign_dialogue.get("ok", false)) or str(sign_dialogue.get("kind", "")) != "sign":
 		push_error("ROM background sign interaction was not decoded")
 		quit(1)
 		return
 	var directional_signs: Array = [{"kind": "sign", "background_kind": 2, "local_id": -1, "x": 6, "y": 1, "elevation": 3, "dialogue_pages": ["Synthetic sign"]}]
-	var sign_wrong_direction: Dictionary = content.interaction_at("pallet-players-house-1f", 6, 0, 1, 3, directional_signs)
+	var sign_wrong_direction: Dictionary = content.interaction_at("rom-map-4-0", 6, 0, 1, 3, directional_signs)
 	if bool(sign_wrong_direction.get("ok", false)):
 		push_error("directional ROM sign interaction ignored its facing rule")
 		quit(1)
@@ -338,8 +370,8 @@ func _init() -> void:
 			quit(1)
 			return
 	audio.free()
-	var spawn: Dictionary = content.default_spawn("pallet-town")
-	if not bool(spawn.get("ok", false)) or not bool(content.map_cell("pallet-town", int(spawn.get("x", 0)), int(spawn.get("y", 0))).get("collision", 1) == 0):
+	var spawn: Dictionary = content.default_spawn("rom-map-3-0")
+	if not bool(spawn.get("ok", false)) or not bool(content.map_cell("rom-map-3-0", int(spawn.get("x", 0)), int(spawn.get("y", 0))).get("collision", 1) == 0):
 		push_error("Pallet Town did not produce a walkable spawn")
 		quit(1)
 		return
@@ -347,7 +379,7 @@ func _init() -> void:
 	var walkable_step_found: bool = false
 	var jump_behavior_found: bool = false
 	var stair_transition_found: bool = false
-	for map_id in ["pallet-town", "route-1", "viridian-city", "rom-map-3-20", "viridian-forest", "pallet-players-house-1f", "pallet-players-house-2f"]:
+	for map_id in ["rom-map-3-0", "rom-map-3-19", "rom-map-3-1", "rom-map-3-20", "rom-map-1-0", "rom-map-4-0", "rom-map-4-1"]:
 		var map_value: Dictionary = content.map_data(map_id)
 		for y in range(int(map_value.get("height", 0))):
 			for x in range(int(map_value.get("width", 0))):
@@ -375,14 +407,14 @@ func _init() -> void:
 		quit(1)
 		return
 	var continuous_step: Dictionary = {}
-	for y in range(int(content.map_data("pallet-town").get("height", 0))):
-		for x in range(int(content.map_data("pallet-town").get("width", 0))):
+	for y in range(int(content.map_data("rom-map-3-0").get("height", 0))):
+		for x in range(int(content.map_data("rom-map-3-0").get("width", 0))):
 			for direction in [1, 2, 3, 4]:
-				var first_step: Dictionary = content.movement_result("pallet-town", x, y, direction, 3, pallet_result.get("objects", []))
-				if not bool(first_step.get("ok", false)) or bool(first_step.get("jump", false)) or bool(first_step.get("stair", false)) or str(first_step.get("map_id", "")) != "pallet-town":
+				var first_step: Dictionary = content.movement_result("rom-map-3-0", x, y, direction, 3, pallet_result.get("objects", []))
+				if not bool(first_step.get("ok", false)) or bool(first_step.get("jump", false)) or bool(first_step.get("stair", false)) or str(first_step.get("map_id", "")) != "rom-map-3-0":
 					continue
-				var second_step: Dictionary = content.movement_result("pallet-town", int(first_step.get("x", 0)), int(first_step.get("y", 0)), direction, int(first_step.get("elevation", 3)), pallet_result.get("objects", []))
-				if bool(second_step.get("ok", false)) and not bool(second_step.get("jump", false)) and not bool(second_step.get("stair", false)) and str(second_step.get("map_id", "")) == "pallet-town":
+				var second_step: Dictionary = content.movement_result("rom-map-3-0", int(first_step.get("x", 0)), int(first_step.get("y", 0)), direction, int(first_step.get("elevation", 3)), pallet_result.get("objects", []))
+				if bool(second_step.get("ok", false)) and not bool(second_step.get("jump", false)) and not bool(second_step.get("stair", false)) and str(second_step.get("map_id", "")) == "rom-map-3-0":
 					continuous_step = {"x": x, "y": y, "direction": direction, "first": first_step}
 					break
 			if not continuous_step.is_empty():
@@ -395,7 +427,7 @@ func _init() -> void:
 		return
 	var world_view: OpenMMOMapPlayCanvas = OpenMMOMapPlayCanvas.new()
 	world_view.set_content(content)
-	world_view.set_map(prepared_result.get("texture") as Texture2D, int(prepared_result.get("width", 0)), int(prepared_result.get("height", 0)), prepared_result.get("objects", []), "pallet-town", prepared_result.get("foreground_texture") as Texture2D)
+	world_view.set_map(prepared_result.get("texture") as Texture2D, int(prepared_result.get("width", 0)), int(prepared_result.get("height", 0)), prepared_result.get("objects", []), "rom-map-3-0", prepared_result.get("foreground_texture") as Texture2D)
 	world_view.set_player_state(int(continuous_step.get("x", 0)), int(continuous_step.get("y", 0)), 3)
 	world_view.held_direction = int(continuous_step.get("direction", 0))
 	world_view._request_move(world_view.held_direction)
@@ -407,12 +439,12 @@ func _init() -> void:
 		return
 	world_view.free()
 	var connection_step: Dictionary = {}
-	var pallet_width: int = int(content.map_data("pallet-town").get("width", 0))
-	var pallet_height: int = int(content.map_data("pallet-town").get("height", 0))
+	var pallet_width: int = int(content.map_data("rom-map-3-0").get("width", 0))
+	var pallet_height: int = int(content.map_data("rom-map-3-0").get("height", 0))
 	for y in range(pallet_height):
 		for edge in [{"x": 0, "y": y, "direction": 3}, {"x": pallet_width - 1, "y": y, "direction": 4}]:
-			var movement: Dictionary = content.movement_result("pallet-town", int(edge.x), int(edge.y), int(edge.direction), 3, pallet_result.get("objects", []))
-			if bool(movement.get("ok", false)) and str(movement.get("map_id", "pallet-town")) != "pallet-town":
+			var movement: Dictionary = content.movement_result("rom-map-3-0", int(edge.x), int(edge.y), int(edge.direction), 3, pallet_result.get("objects", []))
+			if bool(movement.get("ok", false)) and str(movement.get("map_id", "rom-map-3-0")) != "rom-map-3-0":
 				connection_step = {"x": edge.x, "y": edge.y, "direction": edge.direction}
 				break
 		if not connection_step.is_empty():
@@ -420,8 +452,8 @@ func _init() -> void:
 	if connection_step.is_empty():
 		for x in range(pallet_width):
 			for edge in [{"x": x, "y": 0, "direction": 2}, {"x": x, "y": pallet_height - 1, "direction": 1}]:
-				var movement: Dictionary = content.movement_result("pallet-town", int(edge.x), int(edge.y), int(edge.direction), 3, pallet_result.get("objects", []))
-				if bool(movement.get("ok", false)) and str(movement.get("map_id", "pallet-town")) != "pallet-town":
+				var movement: Dictionary = content.movement_result("rom-map-3-0", int(edge.x), int(edge.y), int(edge.direction), 3, pallet_result.get("objects", []))
+				if bool(movement.get("ok", false)) and str(movement.get("map_id", "rom-map-3-0")) != "rom-map-3-0":
 					connection_step = {"x": edge.x, "y": edge.y, "direction": edge.direction}
 					break
 			if not connection_step.is_empty():
@@ -432,7 +464,7 @@ func _init() -> void:
 		return
 	var transition_view: OpenMMOMapPlayCanvas = OpenMMOMapPlayCanvas.new()
 	transition_view.set_content(content)
-	transition_view.set_map(prepared_result.get("texture") as Texture2D, pallet_width, pallet_height, pallet_result.get("objects", []), "pallet-town", prepared_result.get("foreground_texture") as Texture2D)
+	transition_view.set_map(prepared_result.get("texture") as Texture2D, pallet_width, pallet_height, pallet_result.get("objects", []), "rom-map-3-0", prepared_result.get("foreground_texture") as Texture2D)
 	transition_view.set_player_state(int(connection_step.x), int(connection_step.y), 3)
 	transition_view._request_move(int(connection_step.direction))
 	var connection_delta: Vector2 = transition_view.movement_target - transition_view.movement_start
@@ -441,7 +473,7 @@ func _init() -> void:
 		quit(1)
 		return
 	transition_view.free()
-	var warp_result: Dictionary = content.warp_at("pallet-town", 6, 7)
+	var warp_result: Dictionary = content.warp_at("rom-map-3-0", 6, 7)
 	if not bool(warp_result.get("ok", false)) or str(warp_result.get("map_id", "")).is_empty():
 		push_error("Pallet Town warp transition was not resolved")
 		quit(1)
@@ -472,7 +504,7 @@ func _init() -> void:
 			4:
 				vector = Vector2i(1, 0)
 		var from_position: Vector2i = door_position - vector
-		var door_movement: Dictionary = content.movement_result("pallet-town", from_position.x, from_position.y, direction)
+		var door_movement: Dictionary = content.movement_result("rom-map-3-0", from_position.x, from_position.y, direction)
 		if bool(door_movement.get("ok", false)) and int(door_movement.get("x", -1)) == door_position.x and int(door_movement.get("y", -1)) == door_position.y:
 			if not bool(door_movement.get("door", false)):
 				push_error("Pallet Town door warp was not identified as a door traversal")
@@ -485,7 +517,7 @@ func _init() -> void:
 		quit(1)
 		return
 	var non_door_warp_found: bool = false
-	for warp_map_id in ["pallet-oaks-lab", "viridian-pokemon-center-1f", "viridian-pokemon-center-2f"]:
+	for warp_map_id in ["rom-map-4-3", "rom-map-5-4", "rom-map-5-5"]:
 		var warp_map: Dictionary = content.prepare_map(warp_map_id, false)
 		for warp_value in warp_map.get("warps", []) as Array:
 			if not warp_value is Dictionary:
@@ -526,3 +558,12 @@ func _init() -> void:
 	provider._clear_saved_rom()
 	provider.free()
 	quit(0)
+
+func _write_u32(data: PackedByteArray, offset: int, value: int) -> void:
+	data[offset] = value & 0xFF
+	data[offset + 1] = (value >> 8) & 0xFF
+	data[offset + 2] = (value >> 16) & 0xFF
+	data[offset + 3] = (value >> 24) & 0xFF
+
+func _write_gba_pointer(data: PackedByteArray, offset: int, value: int) -> void:
+	_write_u32(data, offset, 0x08000000 | value)

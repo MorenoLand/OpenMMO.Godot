@@ -11,6 +11,9 @@ class FakeContent extends RefCounted:
 	func render_facing_object_sprite(_graphics_id: int, _facing: int, _moving: bool, _frame: int) -> Dictionary:
 		return {"ok": false}
 
+	func can_walk(_map_id: String, _from_x: int, _from_y: int, _to_x: int, _to_y: int, _elevation: int = 3) -> bool:
+		return true
+
 	func movement_result(map_id: String, x: int, y: int, direction: int, elevation: int = 3, _occupied: Array = []) -> Dictionary:
 		var vector := Vector2i.DOWN if direction == 1 else Vector2i.UP if direction == 2 else Vector2i.LEFT if direction == 3 else Vector2i.RIGHT
 		if edge_transition:
@@ -38,6 +41,37 @@ func _init() -> void:
 		push_error("movement did not resume after a map transition")
 		quit(1)
 		return
+	var idle_view = MAP_CANVAS.new()
+	idle_view.set_content(FakeContent.new())
+	idle_view.set_map(texture, 4, 4, [], "outside")
+	idle_view.set_authoritative_state(true)
+	idle_view.set_world_entities([{"entity_id": 12, "npc": true, "map_id": "outside", "x": 1, "y": 1, "unk3": 2 << 8}], 0)
+	var idle_entities: Array = idle_view.get("world_entities")
+	if idle_entities.is_empty() or float((idle_entities[0] as Dictionary).get("wait_elapsed", 0.0)) < 32.0 / 59.7275 - 0.001:
+		push_error("wandering NPC did not receive the ROM medium delay")
+		quit(1)
+		return
+	idle_view._process(0.1)
+	idle_entities = idle_view.get("world_entities")
+	if bool((idle_entities[0] as Dictionary).get("movement_active", false)):
+		push_error("wandering NPC started before its ROM delay elapsed")
+		quit(1)
+		return
+	(idle_entities[0] as Dictionary)["wait_elapsed"] = 0.0
+	idle_view.set("world_entities", idle_entities)
+	idle_view._tick_npc_idle_motion(0.0)
+	idle_entities = idle_view.get("world_entities")
+	if not bool((idle_entities[0] as Dictionary).get("movement_active", false)):
+		push_error("wandering NPC did not start after its ROM delay elapsed")
+		quit(1)
+		return
+	idle_view._process_world_entity_movements(0.3)
+	idle_entities = idle_view.get("world_entities")
+	if float((idle_entities[0] as Dictionary).get("wait_elapsed", 0.0)) < 32.0 / 59.7275 - 0.001:
+		push_error("wandering NPC did not receive a ROM delay after walking")
+		quit(1)
+		return
+	idle_view.free()
 	view._reset_movement_state(true)
 	view.has_spawn = true
 	view.player_position = Vector2i(2, 2)

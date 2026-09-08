@@ -93,6 +93,10 @@ func _build_ui() -> void:
 	hud.shop_sell_requested.connect(_on_shop_sell_requested)
 	hud.shop_closed.connect(_on_shop_closed)
 	add_child(hud)
+	var initial_map_id: String = GameState.map_id_for_location(int(GameState.current_character.get("bank_id", -1)), int(GameState.current_character.get("map_id", -1)), int(GameState.current_character.get("region_id", GameState.current_character.get("region", -1)))) if GameState.content != null else ""
+	var initial_party: Array = GameState.current_character.get("party", []) if GameState.current_character.get("party", []) is Array else []
+	if not initial_map_id.is_empty():
+		hud.set_state(GameState.content, initial_map_id, {"money": int(GameState.current_character.get("money", 0))}, initial_party)
 	chat_box = CHAT_SCRIPT.new()
 	chat_box.message_submitted.connect(_send_chat)
 	add_child(chat_box)
@@ -832,14 +836,10 @@ func _oaks_lab_scene_hides(map_id: String, region_id: int, hide_flag_id: int) ->
 	return hide_flag_id == 45 and scene >= 4
 
 func _is_oaks_lab_map(map_id: String) -> bool:
-	var normalized: String = map_id.to_lower().replace("_", "").replace("-", "")
-	if normalized.contains("palletoakslab") or normalized.contains("pallettownprofessoroakslab"):
-		return true
 	if GameState.content == null:
 		return false
 	var map_value: Dictionary = GameState.content.map_data(map_id)
-	var map_name: String = str(map_value.get("name", "")).to_lower().replace("_", "").replace("-", "")
-	return map_name.contains("pallettown") and map_name.contains("oak") and map_name.contains("lab")
+	return int(map_value.get("map_group", -1)) == 4 and int(map_value.get("map_index", -1)) == 3
 
 func _process(delta: float) -> void:
 	if debug_panel != null and debug_panel.visible:

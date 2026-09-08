@@ -12,6 +12,9 @@ const CAMERA_MAX_CELLS_Y: int = 20
 const MAX_TILE_SCALE: float = 4.0
 const REFERENCE_VIEWPORT_SIZE: Vector2 = Vector2(1280.0, 720.0)
 const NORMAL_STEP_DURATION: float = 0.17
+const GBA_VBLANK_HZ: float = 59.7275
+const NPC_MEDIUM_DELAY_FRAMES: Array[int] = [32, 64, 96, 128]
+const NPC_NORMAL_STEP_DURATION: float = 16.0 / GBA_VBLANK_HZ
 const PLAYER_WALK_ANIMATION_RATE: float = 0.9
 const ANIMATION_FRAME_INTERVAL: float = 0.125
 const DOOR_ANIMATION_DURATION: float = 16.0 / 60.0
@@ -749,6 +752,8 @@ func set_world_entities(values: Array, local_character_id: int) -> void:
 			if previous.has(dynamic_key):
 				stored_entity[dynamic_key] = previous.get(dynamic_key)
 		stored_entity["movement_scripted"] = script_busy
+		if not previous.has("wait_elapsed") and _npc_uses_medium_delay(movement_type):
+			stored_entity["wait_elapsed"] = _npc_medium_delay_seconds()
 		world_entities.append(stored_entity)
 		var pending_value: Variant = pending_scripted_movements.get(str(entity_id), [])
 		if pending_value is Array and not (pending_value as Array).is_empty():
@@ -811,13 +816,13 @@ func _scripted_step_info(action: int) -> Dictionary:
 		0x03:
 			return {"direction": 4, "walk": false, "animate": false, "duration": 0.12}
 		0x10:
-			return {"direction": 1, "walk": true, "animate": true, "duration": 0.25}
+			return {"direction": 1, "walk": true, "animate": true, "duration": NPC_NORMAL_STEP_DURATION}
 		0x11:
-			return {"direction": 2, "walk": true, "animate": true, "duration": 0.25}
+			return {"direction": 2, "walk": true, "animate": true, "duration": NPC_NORMAL_STEP_DURATION}
 		0x12:
-			return {"direction": 3, "walk": true, "animate": true, "duration": 0.25}
+			return {"direction": 3, "walk": true, "animate": true, "duration": NPC_NORMAL_STEP_DURATION}
 		0x13:
-			return {"direction": 4, "walk": true, "animate": true, "duration": 0.25}
+			return {"direction": 4, "walk": true, "animate": true, "duration": NPC_NORMAL_STEP_DURATION}
 		0x1B:
 			return {"direction": 0, "walk": false, "animate": false, "duration": 8.0 / 60.0}
 		0x1C:
@@ -963,6 +968,8 @@ func _process_world_entity_movements(delta: float) -> void:
 			entity["movement_active"] = false
 			entity["movement_action"] = -1
 			entity["movement_animation"] = false
+			if _npc_uses_medium_delay(int(entity.get("movement_type", 0))) and not bool(entity.get("movement_scripted", false)):
+				entity["wait_elapsed"] = _npc_medium_delay_seconds()
 			_update_world_entity_texture(entity)
 			world_entities[index] = entity
 			if not (entity.get("movement_queue", []) as Array).is_empty():
@@ -1010,10 +1017,16 @@ func _tick_npc_idle_motion(delta: float) -> void:
 			_start_world_entity_movement(index)
 			redraw_needed = true
 		else:
-			entity["wait_elapsed"] = 0.25
+			entity["wait_elapsed"] = _npc_medium_delay_seconds() if _npc_uses_medium_delay(movement_type) else 0.25
 			world_entities[index] = entity
 	if redraw_needed:
 		queue_redraw()
+
+func _npc_uses_medium_delay(movement_type: int) -> bool:
+	return movement_type >= 2 and movement_type <= 6
+
+func _npc_medium_delay_seconds() -> float:
+	return float(NPC_MEDIUM_DELAY_FRAMES[randi() & 3]) / GBA_VBLANK_HZ
 
 func _npc_in_range(entity: Dictionary, dest: Vector2i) -> bool:
 	var home: Vector2i = Vector2i(int(entity.get("home_x", 0)), int(entity.get("home_y", 0)))
@@ -1069,10 +1082,6 @@ func _npc_try_patrol(entity: Dictionary, movement_type: int) -> bool:
 	return _npc_queue_step(entity, godot_dir)
 
 func _npc_try_wander(entity: Dictionary, movement_type: int) -> bool:
-	var pending: int = int(entity.get("pending_dir", -1))
-	if pending > 0:
-		entity["pending_dir"] = -1
-		return _npc_queue_step(entity, pending)
 	var godot_dir: int = (randi() % 4) + 1
 	if movement_type == 3 or movement_type == 4:
 		godot_dir = 1 if (randi() & 1) == 0 else 2
@@ -1080,10 +1089,7 @@ func _npc_try_wander(entity: Dictionary, movement_type: int) -> bool:
 		godot_dir = 3 if (randi() & 1) == 0 else 4
 	if godot_dir != int(entity.get("facing", 1)):
 		entity["facing"] = godot_dir
-		entity["pending_dir"] = godot_dir
-		entity["wait_elapsed"] = 0.4
 		_update_world_entity_texture(entity)
-		return false
 	return _npc_queue_step(entity, godot_dir)
 
 func _apply_map(result: Dictionary, reset_spawn: bool) -> void:
