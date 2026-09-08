@@ -111,6 +111,8 @@ func _finish_resize() -> void:
 		queue_redraw()
 
 func set_content(value) -> void:
+	if content == value:
+		return
 	content = value
 	player_texture = null
 	player_texture_key = ""
@@ -118,7 +120,7 @@ func set_content(value) -> void:
 	follower_texture = null
 	follower_frames.clear()
 	follower_texture_key = ""
-	if not map_id.is_empty():
+	if not authoritative_state and not map_id.is_empty():
 		_set_spawn()
 	_refresh_object_textures()
 	queue_redraw()
@@ -1257,7 +1259,7 @@ func _movement_destination_occupied(objects_to_check: Array, destination: Vector
 	return false
 
 func _request_move(direction: int) -> bool:
-	if transition_active or (authoritative_state and GameState.map_transition_pending) or content == null or map_id.is_empty() or not has_spawn:
+	if not input_enabled or transition_active or (authoritative_state and GameState.map_transition_pending) or content == null or map_id.is_empty() or not has_spawn:
 		return false
 	if authoritative_state and movement_active:
 		return false
@@ -1278,7 +1280,7 @@ func _request_move(direction: int) -> bool:
 	if authoritative_state:
 		if not bool(result.get("ok", false)):
 			var local_error: String = str(result.get("error", ""))
-			if local_error == "water" or local_error == "ledge" or local_error == "jump landing is blocked":
+			if local_error == "blocked" or local_error == "water" or local_error == "ledge" or local_error == "jump landing is blocked":
 				return false
 			var predicted_position := player_position + Vector2i(_direction_vector(direction))
 			var movement_map: Dictionary = content.map_data(map_id)
