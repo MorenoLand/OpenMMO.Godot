@@ -550,7 +550,10 @@ func _resolve_tone(data: PackedByteArray, tone: Dictionary, key: int, depth: int
 		var rhythm_group: int = int(tone.get("wav", -1))
 		if rhythm_group < 0:
 			return {}
-		return _resolve_tone(data, _read_tone(data, rhythm_group, clampi(key, 0, 255)), key, depth + 1)
+		var resolved: Dictionary = _resolve_tone(data, _read_tone(data, rhythm_group, clampi(key, 0, 255)), key, depth + 1).duplicate()
+		var pan_sweep: int = int(resolved.get("pan_sweep", 0))
+		resolved["rhythm_pan"] = ((pan_sweep & 0x7F) - 64) * 2 if (pan_sweep & 0x80) != 0 else 0
+		return resolved
 	return tone
 
 func _render_song(data: PackedByteArray, song: Dictionary, parsed: Dictionary) -> AudioStream:
@@ -629,10 +632,9 @@ func _render_event(mix: PackedFloat32Array, frame_count: int, data: PackedByteAr
 	var note_key: int = int(event.get("key", 60))
 	var fine_adjust: int = clampi(int(event.get("fine_adjust", 0)), 0, 255)
 	var pitch_key: float = float(note_key) + float(fine_adjust) / 256.0
-	var volume_gain: float = clampf(float(int(event.get("velocity", 127))) / 127.0, 0.0, 1.0) * clampf(float(int(event.get("volume", 127))) / 127.0, 0.0, 1.0) * 0.28
-	var pan_value: float = clampf(float(int(event.get("pan", 0)) + int(tone.get("pan", 0))) / 64.0, -1.0, 1.0)
-	var left_gain: float = cos((pan_value + 1.0) * PI * 0.25) * volume_gain
-	var right_gain: float = sin((pan_value + 1.0) * PI * 0.25) * volume_gain
+	var gains: Vector2 = _pcm_stereo_gains(int(event.get("velocity", 127)), int(event.get("volume", 127)), int(event.get("pan", 0)), int(tone.get("rhythm_pan", 0))) * (0.28 * sqrt(2.0) / 255.0)
+	var left_gain: float = gains.x
+	var right_gain: float = gains.y
 	var phase: float = 0.0
 	var noise_state: int = 0x7FFF
 	var wave: Dictionary = {}
@@ -754,6 +756,15 @@ func _midi_key_to_freq(wave: Dictionary, key: int, fine_adjust: int) -> int:
 	var value_two: int = MIDI_FREQ_TABLE[next_scale & 0x0F] >> (next_scale >> 4)
 	var interpolated: int = value_one + ((value_two - value_one) * adjusted_fine >> 8)
 	return int((int(wave.get("frequency_fixed", 0)) * interpolated) >> 32)
+
+func _pcm_stereo_gains(velocity: int, volume: int, pan: int, rhythm_pan: int = 0) -> Vector2:
+	var track_volume: int = clampi(volume, 0, 127) * 2
+	var track_pan: int = clampi(pan * 2, -128, 127)
+	var right: int = ((track_pan + 128) * track_volume) >> 8
+	var left: int = ((127 - track_pan) * track_volume) >> 8
+	var note_velocity: int = clampi(velocity, 0, 127)
+	var drum_pan: int = clampi(rhythm_pan, -128, 127)
+	return Vector2(mini(255, ((127 - drum_pan) * note_velocity * left) >> 14), mini(255, ((128 + drum_pan) * note_velocity * right) >> 14))
 
 var pcm_envelope_cache: Dictionary = {}
 
