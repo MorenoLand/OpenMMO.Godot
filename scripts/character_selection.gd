@@ -134,12 +134,23 @@ func _warm_character_maps(values: Array) -> void:
 		if region_content == null:
 			warming_map_ids.erase(map_id)
 			continue
-		var prepared: Dictionary = region_content.prepare_map(map_id, false)
+		var worker: OpenMMOContent = region_content.create_map_cache_worker()
+		var task_id: int = WorkerThreadPool.add_task(worker.build_detached_map_cache.bind(map_id), false, "Warm map %s" % map_id)
+		var prepared: Dictionary = await _finish_map_warm(worker, task_id)
 		warming_map_ids.erase(map_id)
 		if not bool(prepared.get("ok", false)):
 			continue
+		region_content.install_detached_map_cache(map_id, prepared)
 		warmed_map_ids[map_id] = true
 		_set_map_ready(map_id)
+
+func _finish_map_warm(worker: OpenMMOContent, task_id: int) -> Dictionary:
+	if task_id < 0:
+		return {}
+	while not WorkerThreadPool.is_task_completed(task_id):
+		await get_tree().process_frame
+	WorkerThreadPool.wait_for_task_completion(task_id)
+	return worker.detached_map_cache_result if worker != null else {}
 
 func _add_character_card(character: Dictionary) -> void:
 	var card := PanelContainer.new()
