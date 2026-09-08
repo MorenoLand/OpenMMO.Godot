@@ -6,10 +6,14 @@ var content: OpenMMOContent
 func _init() -> void:
 	content = OpenMMOContent.new()
 	content.rom_data.resize(0x8000)
-	content.source_profile = {"id": "test", "region": "Kanto", "content_id": "test", "format": {"tile_bytes": 32}, "object_event_graphics_table": 0x100, "object_event_palette_table": 0x7000, "object_event_graphics_count": 152, "object_facing_frames": {"south": {"idle": 0, "walk": [0]}, "north": {"idle": 0, "walk": [0]}, "west": {"idle": 0, "walk": [0]}, "east": {"idle": 0, "walk": [0]}}}
+	content.source_profile = {"id": "test", "region": "Kanto", "content_id": "test", "format": {"tile_bytes": 32}, "object_event_graphics_count": 152, "object_facing_frames": {"south": {"idle": 0, "walk": [0]}, "north": {"idle": 0, "walk": [0]}, "west": {"idle": 0, "walk": [0]}, "east": {"idle": 0, "walk": [0]}}}
 	var fixtures: Array = [{"id": 72, "width": 16, "height": 32, "inanimate": false}, {"id": 92, "width": 16, "height": 16, "inanimate": true}, {"id": 94, "width": 16, "height": 16, "inanimate": true}]
-	for fixture_index in range(fixtures.size()):
-		var fixture: Dictionary = fixtures[fixture_index]
+	var catalog_fixtures: Array = []
+	for graphics_id in range(16):
+		catalog_fixtures.append({"id": graphics_id, "width": 16, "height": 32, "inanimate": false})
+	catalog_fixtures.append_array(fixtures)
+	for fixture_index in range(catalog_fixtures.size()):
+		var fixture: Dictionary = catalog_fixtures[fixture_index]
 		var graphics_id: int = int(fixture["id"])
 		var structure_offset: int = 0x1000 + graphics_id * 0x20
 		var image_table_offset: int = 0x3000 + graphics_id * 0x20

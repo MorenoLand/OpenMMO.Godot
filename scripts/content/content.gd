@@ -311,6 +311,68 @@ func _read_rom_u16(offset: int) -> int:
 		return -1
 	return int(rom_data[offset]) | (int(rom_data[offset + 1]) << 8)
 
+func _object_graphics_info_is_valid(structure_offset: int) -> bool:
+	if structure_offset < 0 or not _valid_range(structure_offset, 0x20):
+		return false
+	var width: int = _read_s16(structure_offset + 0x08)
+	var height: int = _read_s16(structure_offset + 0x0A)
+	if width <= 0 or height <= 0 or width % 8 != 0 or height % 8 != 0 or width > 64 or height > 64:
+		return false
+	var images_offset: int = _read_rom_pointer(structure_offset + 0x1C)
+	if images_offset < 0 or not _valid_range(images_offset, 8):
+		return false
+	var data_offset: int = _read_rom_pointer(images_offset)
+	var frame_size: int = _read_rom_u16(images_offset + 4)
+	return data_offset >= 0 and frame_size > 0 and frame_size <= 0x1000 and _valid_range(data_offset, frame_size)
+
+func _find_fire_red_object_graphics_table(entry_count: int) -> int:
+	var required_entries: int = mini(entry_count, 16)
+	if required_entries < 8 or rom_data.size() < required_entries * 4:
+		return -1
+	for candidate in range(0, rom_data.size() - required_entries * 4, 4):
+		if _read_rom_pointer(candidate) < 0:
+			continue
+		var valid_entries: int = 0
+		for entry in range(required_entries):
+			if _object_graphics_info_is_valid(_read_rom_pointer(candidate + entry * 4)):
+				valid_entries += 1
+		if valid_entries == required_entries:
+			return candidate
+	return -1
+
+func _find_fire_red_object_palette_table(table_offset: int, entry_count: int) -> int:
+	var palette_tags: Dictionary = {}
+	for entry in range(entry_count):
+		var structure_offset: int = _read_rom_pointer(table_offset + entry * 4)
+		if structure_offset < 0 or not _object_graphics_info_is_valid(structure_offset):
+			continue
+		var palette_tag: int = _read_rom_u16(structure_offset + 2)
+		if palette_tag >= 0:
+			palette_tags[palette_tag] = true
+	if palette_tags.is_empty():
+		return -1
+	var best_offset: int = -1
+	var best_score: int = 0
+	for candidate in range(0, rom_data.size() - 8, 4):
+		var first_pointer: int = _read_rom_pointer(candidate)
+		var first_tag: int = _read_rom_u16(candidate + 4)
+		if first_pointer < 0 or not palette_tags.has(first_tag):
+			continue
+		var score: int = 0
+		for entry in range(32):
+			var record_offset: int = candidate + entry * 8
+			var palette_pointer: int = _read_rom_pointer(record_offset)
+			var palette_tag: int = _read_rom_u16(record_offset + 4)
+			if palette_pointer < 0 or not palette_tags.has(palette_tag):
+				break
+			score += 1
+		if score > best_score:
+			best_score = score
+			best_offset = candidate
+		if score >= mini(8, palette_tags.size()):
+			return candidate
+	return best_offset if best_score >= 4 else -1
+
 func _populate_fire_red_object_sprites(object_sprites: Dictionary) -> void:
 	if rom_data.is_empty():
 		return
@@ -320,22 +382,11 @@ func _populate_fire_red_object_sprites(object_sprites: Dictionary) -> void:
 	if table_offset < 0:
 		if str(source_profile.get("region", "")) != "Kanto":
 			return
-		for candidate in [0x39FE20, 0x39FDB0]:
-			var valid_entries: int = 0
-			for entry in range(16):
-				var structure_offset: int = _read_rom_pointer(candidate + entry * 4)
-				if structure_offset < 0 or not _valid_range(structure_offset + 0x08, 4):
-					continue
-				var width: int = _read_s16(structure_offset + 0x08)
-				var height: int = _read_s16(structure_offset + 0x0A)
-				if width > 0 and height > 0 and width % 8 == 0 and height % 8 == 0 and width <= 64 and height <= 64:
-					valid_entries += 1
-			if valid_entries >= 4:
-				table_offset = candidate
-				break
-		if table_offset < 0:
-			return
-		palette_table_offset = 0x3A51C8 if table_offset == 0x39FE20 else 0x3A501C
+		table_offset = _find_fire_red_object_graphics_table(entry_count)
+	if table_offset < 0:
+		return
+	if palette_table_offset < 0:
+		palette_table_offset = _find_fire_red_object_palette_table(table_offset, entry_count)
 	if palette_table_offset < 0 or entry_count <= 0:
 		return
 	for entry in range(entry_count):
