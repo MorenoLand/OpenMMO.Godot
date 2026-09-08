@@ -69,7 +69,7 @@ static func _fire_red_profile() -> Dictionary:
 	profile["map_groups"] = {"dungeons": 1, "towns_and_routes": 3, "indoor_pallet": 4, "indoor_viridian": 5}
 	profile["region_map_entries_signature"] = "AC470000AE470000B0470000"
 	profile["region_map_section_start"] = 88
-	profile["object_event_graphics_tables"] = {0: {"graphics": 0x39FE20, "palette": 0x3A51C8}, 1: {"graphics": 0x39FDB0, "palette": 0x3A501C}}
+	profile["object_event_graphics_tables"] = {0: {"graphics": 0x39FDB0, "palette": 0x3A501C}, 1: {"graphics": 0x39FE20, "palette": 0x3A51C8}}
 	profile["object_event_graphics_count"] = 152
 	profile["audio"] = {"song_table_offset": 0x4A332C, "anchor_song_ids": [291, 300, 303]}
 	profile["format"] = _fire_red_format()
