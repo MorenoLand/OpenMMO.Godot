@@ -1555,15 +1555,14 @@ func _update_player_texture() -> void:
 	if player_texture != null and player_texture_key == texture_key:
 		return
 	var sprite_content = content
-	var player_gfx: int = 19
-	if sprite_content != null and str(sprite_content.source_profile.get("region", "")).to_lower() == "hoenn":
-		var gender: int = int(GameState.current_character.get("gender", 0))
-		player_gfx = int(sprite_content.source_profile.get("player_object_graphics_id_female" if gender == 1 else "player_object_graphics_id", 0))
+	var gender: int = int(GameState.current_character.get("gender", 0))
+	var player_gfx: int = int(sprite_content.source_profile.get("player_object_graphics_id_female" if gender == 1 else "player_object_graphics_id", 0))
 	var sprite: Dictionary = sprite_content.render_facing_object_sprite(player_gfx, player_facing, movement_animation_active and movement_active, frame_step)
 	if not bool(sprite.get("ok", false)) or sprite.get("texture") == null:
-		var kanto = GameState.content_for_region("kanto")
+		var kanto: OpenMMOContent = GameState.content_for_region("kanto")
 		if kanto != null and kanto != sprite_content:
-			sprite = kanto.render_facing_object_sprite(19, player_facing, movement_animation_active and movement_active, frame_step)
+			var kanto_gfx: int = int(kanto.source_profile.get("player_object_graphics_id_female" if gender == 1 else "player_object_graphics_id", 0))
+			sprite = kanto.render_facing_object_sprite(kanto_gfx, player_facing, movement_animation_active and movement_active, frame_step)
 	player_texture = sprite.get("texture") as Texture2D
 	player_texture_key = texture_key if player_texture != null else ""
 

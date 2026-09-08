@@ -27,6 +27,7 @@ const GBA_GAME_CODE_OFFSET: int = 0xAC
 const GBA_GAME_CODE_LENGTH: int = 4
 const GBA_MAKER_CODE_OFFSET: int = 0xB0
 const GBA_MAKER_CODE_LENGTH: int = 2
+const GBA_REVISION_OFFSET: int = 0xBC
 const MAP_HEADER_SIZE: int = 0x1C
 const MAPGRID_METATILE_ID_MASK: int = 0x03FF
 const MAPGRID_COLLISION_MASK: int = 0x0C00
@@ -90,6 +91,7 @@ var battle_move_info_cache: Dictionary = {}
 var battle_animation_sheet_cache: Dictionary = {}
 var battle_animation_plan_cache: Dictionary = {}
 var battle_ball_cache: Dictionary = {}
+var battle_background_cache: Dictionary = {}
 var door_animation_texture_cache: Dictionary = {}
 var follower_sprite_cache: Dictionary = {}
 var follower_source_path: String = ""
@@ -133,9 +135,9 @@ static func from_rom_bytes(data: PackedByteArray) -> Dictionary:
 	return {"ok": true, "content": content}
 
 static func _read_gba_header(data: PackedByteArray) -> Dictionary:
-	if data.size() < GBA_MAKER_CODE_OFFSET + GBA_MAKER_CODE_LENGTH:
+	if data.size() <= GBA_REVISION_OFFSET:
 		return {}
-	return {"title": data.slice(GBA_TITLE_OFFSET, GBA_TITLE_OFFSET + GBA_TITLE_LENGTH).get_string_from_ascii().strip_edges(), "game_code": data.slice(GBA_GAME_CODE_OFFSET, GBA_GAME_CODE_OFFSET + GBA_GAME_CODE_LENGTH).get_string_from_ascii(), "maker_code": data.slice(GBA_MAKER_CODE_OFFSET, GBA_MAKER_CODE_OFFSET + GBA_MAKER_CODE_LENGTH).get_string_from_ascii()}
+	return {"title": data.slice(GBA_TITLE_OFFSET, GBA_TITLE_OFFSET + GBA_TITLE_LENGTH).get_string_from_ascii().strip_edges(), "game_code": data.slice(GBA_GAME_CODE_OFFSET, GBA_GAME_CODE_OFFSET + GBA_GAME_CODE_LENGTH).get_string_from_ascii(), "maker_code": data.slice(GBA_MAKER_CODE_OFFSET, GBA_MAKER_CODE_OFFSET + GBA_MAKER_CODE_LENGTH).get_string_from_ascii(), "revision": int(data[GBA_REVISION_OFFSET])}
 
 static func _has_map_layout(data: PackedByteArray, profile: Dictionary) -> bool:
 	var map_groups_offset: int = int(profile.get("map_groups_offset", -1))
@@ -311,40 +313,13 @@ func _read_rom_u16(offset: int) -> int:
 		return -1
 	return int(rom_data[offset]) | (int(rom_data[offset + 1]) << 8)
 
-func _object_graphics_info_is_valid(structure_offset: int) -> bool:
-	if structure_offset < 0 or not _valid_range(structure_offset, 0x20):
-		return false
-	var width: int = _read_s16(structure_offset + 0x08)
-	var height: int = _read_s16(structure_offset + 0x0A)
-	if width <= 0 or height <= 0 or width % 8 != 0 or height % 8 != 0 or width > 64 or height > 64:
-		return false
-	var images_offset: int = _read_rom_pointer(structure_offset + 0x1C)
-	if images_offset < 0 or not _valid_range(images_offset, 8):
-		return false
-	var data_offset: int = _read_rom_pointer(images_offset)
-	var frame_size: int = _read_rom_u16(images_offset + 4)
-	return data_offset >= 0 and frame_size > 0 and frame_size <= 0x1000 and _valid_range(data_offset, frame_size)
-
-func _fire_red_object_event_tables() -> Dictionary:
-	if str(source_profile.get("id", "")) != "pokemon-fire-red":
-		return {}
-	var tables: Dictionary = source_profile.get("object_event_graphics_tables", {})
-	var revision: int = 1 if rom_sha1 == FIRE_RED_REV1_SHA1 or _fire_red_revision() >= 1 else 0
-	return tables.get(revision, {})
-
 func _populate_fire_red_object_sprites(object_sprites: Dictionary) -> void:
 	if rom_data.is_empty():
 		return
 	var table_offset: int = int(source_profile.get("object_event_graphics_table", -1))
 	var palette_table_offset: int = int(source_profile.get("object_event_palette_table", -1))
 	var entry_count: int = int(source_profile.get("object_event_graphics_count", 152))
-	if table_offset < 0:
-		var table_info: Dictionary = _fire_red_object_event_tables()
-		table_offset = int(table_info.get("graphics", -1))
-		palette_table_offset = int(table_info.get("palette", palette_table_offset))
-	if table_offset < 0:
-		return
-	if palette_table_offset < 0 or entry_count <= 0:
+	if table_offset < 0 or palette_table_offset < 0 or entry_count <= 0:
 		return
 	for entry in range(entry_count):
 		var structure_offset: int = _read_rom_pointer(table_offset + entry * 4)
@@ -362,28 +337,14 @@ func _populate_fire_red_object_sprites(object_sprites: Dictionary) -> void:
 		var first_data_offset: int = -1
 		var frame_count: int = 0
 		var frame_bytes: int = expected_bytes
-		var display_width: int = width
-		var display_height: int = height
-		var mixed_sizes: bool = false
-		var walk_limit: int = 1 if inanimate else 9
+		var max_frames: int = 1 if inanimate or (width <= 16 and height <= 16) else 9
 		for frame in range(12):
+			if frame >= max_frames:
+				break
 			var frame_offset: int = images_offset + frame * 8
 			var data_offset: int = _read_rom_pointer(frame_offset)
 			var frame_size: int = _read_rom_u16(frame_offset + 4)
-			if data_offset < 0 or frame_size <= 0 or not _valid_range(data_offset, frame_size):
-				break
-			if frame_size != expected_bytes:
-				mixed_sizes = true
-			if inanimate or mixed_sizes:
-				if frame_size >= frame_bytes:
-					first_data_offset = data_offset
-					frame_bytes = frame_size
-					if width > 0 and (frame_size * 2) % width == 0:
-						display_width = width
-						display_height = int((frame_size * 2) / width)
-				frame_count = 1
-				continue
-			if frame >= walk_limit:
+			if data_offset < 0 or frame_size != expected_bytes or not _valid_range(data_offset, frame_size):
 				break
 			if frame > 0:
 				var previous_data_offset: int = _read_rom_pointer(frame_offset - 8)
@@ -411,7 +372,7 @@ func _populate_fire_red_object_sprites(object_sprites: Dictionary) -> void:
 			# FireRed town-map: PNG 32x16, gbagfx -mwidth 2 -mheight 2 stores two 16x16 blocks as 16x32; OAM shows 32x16.
 			var storage_width: int = 16 if width == 32 and height == 16 else width
 			var storage_height: int = 32 if width == 32 and height == 16 else height
-			object_sprites[entry] = {"data_offset": first_data_offset, "width": display_width, "height": display_height, "storage_width": storage_width if display_width == width else display_width, "storage_height": storage_height if display_height == height else display_height, "frame_bytes": frame_bytes, "frame_count": frame_count, "palette_offset": palette_offset, "inanimate": inanimate or mixed_sizes}
+			object_sprites[entry] = {"data_offset": first_data_offset, "width": width, "height": height, "storage_width": storage_width, "storage_height": storage_height, "frame_bytes": frame_bytes, "frame_count": frame_count, "palette_offset": palette_offset, "inanimate": inanimate}
 
 func _hydrate_manifest() -> void:
 	var maps: Array = manifest.get("maps", [])
@@ -1165,6 +1126,116 @@ func _decode_hgss_follower_texture(data: PackedByteArray, shiny: bool) -> Dictio
 
 func _battle_internal_species_id(species_id: int) -> int:
 	return species_id if species_id <= 251 else species_id + 25
+
+func battle_background_texture(environment: int = 0) -> Texture2D:
+	var cache_key: String = str(environment)
+	if battle_background_cache.has(cache_key):
+		return battle_background_cache[cache_key] as Texture2D
+	var table_offset: int = _format_int("battle_background_table_offset", -1)
+	var entry_count: int = _format_int("battle_background_count", 0)
+	if table_offset < 0 or entry_count <= 0:
+		return null
+	var selected_environment: int = clampi(environment, 0, entry_count - 1)
+	var record_offset: int = table_offset + selected_environment * 20
+	if not _valid_range(record_offset, 20):
+		return null
+	var tiles_offset: int = _read_rom_pointer(record_offset)
+	var map_offset: int = _read_rom_pointer(record_offset + 4)
+	var palette_offset: int = _read_rom_pointer(record_offset + 16)
+	var tiles: PackedByteArray = _read_lz77(tiles_offset)
+	var map_data: PackedByteArray = _read_lz77(map_offset)
+	var palettes: PackedByteArray = _read_lz77(palette_offset)
+	if tiles.size() < 32 or map_data.size() < 20 * 32 * 2 or palettes.size() < 96:
+		return null
+	var image: Image = Image.create(240, 160, false, Image.FORMAT_RGBA8)
+	image.fill(Color(0.0, 0.0, 0.0, 0.0))
+	var tile_count: int = int(tiles.size() / 32)
+	for tile_y in range(20):
+		for tile_x in range(30):
+			var entry: int = int(map_data[(tile_y * 32 + tile_x) * 2]) | (int(map_data[(tile_y * 32 + tile_x) * 2 + 1]) << 8)
+			var palette_nibble: int = (entry >> 12) & 0x0F
+			if palette_nibble == 0:
+				continue
+			var tile_id: int = entry & 0x03FF
+			if tile_id >= tile_count:
+				continue
+			var palette_index: int = clampi(palette_nibble - 2, 0, 2)
+			var flip_h: bool = (entry & 0x0400) != 0
+			var flip_v: bool = (entry & 0x0800) != 0
+			for pixel_y in range(8):
+				for pixel_x in range(8):
+					var source_x: int = 7 - pixel_x if flip_h else pixel_x
+					var source_y: int = 7 - pixel_y if flip_v else pixel_y
+					var packed: int = int(tiles[tile_id * 32 + source_y * 4 + (source_x >> 1)])
+					var color_index: int = packed & 0x0F if (source_x & 1) == 0 else (packed >> 4) & 0x0F
+					var color_value: int = int(palettes[(palette_index * 16 + color_index) * 2]) | (int(palettes[(palette_index * 16 + color_index) * 2 + 1]) << 8)
+					image.set_pixel(tile_x * 8 + pixel_x, tile_y * 8 + pixel_y, Color(float(color_value & 0x1F) / 31.0, float((color_value >> 5) & 0x1F) / 31.0, float((color_value >> 10) & 0x1F) / 31.0, 1.0))
+	var sky: Color = Color.BLACK
+	var sky_found: bool = false
+	for pixel_y in range(160):
+		for pixel_x in range(240):
+			var color: Color = image.get_pixel(pixel_x, pixel_y)
+			if color.a > 0.0:
+				sky = color
+				sky_found = true
+				break
+		if sky_found:
+			break
+	var platform: Color = sky
+	var platform_edge: Color = sky
+	var colors: Array[Color] = []
+	var counts: Array[int] = []
+	var dark_luminance: float = 9999.0
+	var best_count: int = 0
+	for pixel_y in range(96, 112):
+		for pixel_x in range(16, 120):
+			var color: Color = image.get_pixel(pixel_x, pixel_y)
+			if color.a <= 0.0 or color == sky:
+				continue
+			var luminance: float = color.r + color.g + color.b
+			if luminance < dark_luminance:
+				dark_luminance = luminance
+				platform_edge = color
+			var color_index: int = -1
+			for index in range(colors.size()):
+				if colors[index] == color:
+					color_index = index
+					break
+			if color_index < 0 and colors.size() < 16:
+				color_index = colors.size()
+				colors.append(color)
+				counts.append(0)
+			if color_index >= 0:
+				counts[color_index] += 1
+				if counts[color_index] > best_count:
+					best_count = counts[color_index]
+					platform = color
+	if platform == sky:
+		platform = platform_edge
+	var grass: Color = platform if platform.a > 0.0 else sky
+	var center_x: int = 88
+	var center_y: int = 128
+	var radius_x: int = 70
+	var radius_y: int = 18
+	var radius_x_squared: int = radius_x * radius_x
+	var radius_y_squared: int = radius_y * radius_y
+	var radius_product: int = radius_x_squared * radius_y_squared
+	for pixel_y in range(160):
+		for pixel_x in range(240):
+			if image.get_pixel(pixel_x, pixel_y).a > 0.0:
+				continue
+			var delta_x: int = pixel_x - center_x
+			var delta_y: int = pixel_y - center_y
+			var ellipse_value: int = delta_x * delta_x * radius_y_squared + delta_y * delta_y * radius_x_squared
+			if ellipse_value <= radius_product:
+				image.set_pixel(pixel_x, pixel_y, platform_edge if ellipse_value * 100 > radius_product * 72 else platform)
+			elif pixel_y < 88:
+				image.set_pixel(pixel_x, pixel_y, sky)
+			else:
+				image.set_pixel(pixel_x, pixel_y, grass)
+	var texture: ImageTexture = ImageTexture.create_from_image(image)
+	battle_background_cache[cache_key] = texture
+	return texture
 
 func _battle_rom_tables() -> Dictionary:
 	if battle_tables_scanned:

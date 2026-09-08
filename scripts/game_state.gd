@@ -212,9 +212,9 @@ func _local_bank_for_content(value: OpenMMOContent, bank_id: int) -> int:
 	if value == null:
 		return bank_id
 	var region: String = str(value.source_profile.get("region", "")).strip_edges().to_lower()
-	# OpenMMO server tags Hoenn banks with +50 (see OpenMMO-Client GbaTables.serverBankOffset).
-	if region == "hoenn" and bank_id >= 50:
-		return bank_id - 50
+	var server_bank_offset: int = int(value.source_profile.get("server_bank_offset", 50 if region == "hoenn" else 0))
+	if server_bank_offset > 0 and bank_id >= server_bank_offset:
+		return bank_id - server_bank_offset
 	return bank_id
 
 func _effective_location_region(region_id: int, bank_id: int, rom_type: int = -1) -> int:

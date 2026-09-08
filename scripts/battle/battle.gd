@@ -5,7 +5,6 @@ signal exit_requested
 const OPENMMO_BATTLE_HUD: Texture2D = preload("res://assets/openmmo/default/res/battle-hud.png")
 const OPENMMO_BATTLE_FONT = preload("res://assets/openmmo/default/res/fonts/battle.ttf")
 const OPENMMO_SHADOW_BIG: Texture2D = preload("res://assets/openmmo/default/shadow_big/shadow_big.png")
-const OPENMMO_BATTLE_BACKGROUNDS: Array[Texture2D] = [preload("res://assets/openmmo/default/textures/bg_00.png"), preload("res://assets/openmmo/default/textures/bg_01.png"), preload("res://assets/openmmo/default/textures/bg_02.png")]
 const BATTLE_HUD_AREAS: Dictionary = {
 	"health-progressbar.background": Rect2i(35, 8, 13, 6),
 	"health-progressbar.progressImage": Rect2i(20, 9, 1, 4),
@@ -111,8 +110,8 @@ func _build_ui() -> void:
 	battle_background.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 	battle_background.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	battle_background.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	battle_background.texture = OPENMMO_BATTLE_BACKGROUNDS[0]
-	battle_background.z_index = -1
+	battle_background.texture = null
+	battle_background.z_index = 0
 	stage_root.add_child(battle_background)
 	var field_shade := ColorRect.new()
 	field_shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -587,8 +586,7 @@ func _render_state() -> void:
 func _refresh_battle_background() -> void:
 	if battle_background == null:
 		return
-	var background_index: int = clampi(int(state.get("background", 0)), 0, OPENMMO_BATTLE_BACKGROUNDS.size() - 1)
-	battle_background.texture = OPENMMO_BATTLE_BACKGROUNDS[background_index]
+	battle_background.texture = GameState.content.battle_background_texture(int(state.get("background", 0))) if GameState.content != null else null
 
 func _active_mon(party: Array, active_slot: int) -> Dictionary:
 	for mon_value in party:
@@ -749,6 +747,8 @@ func _render_actions() -> void:
 		return
 	if action_panel != null:
 		action_panel.visible = not bool(state.get("battle_complete", false)) and not input_locked and (bool(state.get("can_act", false)) or bool(state.get("force_switch", false)))
+	if log_view != null:
+		log_view.visible = action_panel == null or not action_panel.visible
 	selection_buttons.clear()
 	selection_index = 0
 	for child in action_box.get_children():

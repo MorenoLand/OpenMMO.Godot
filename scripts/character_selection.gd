@@ -174,7 +174,7 @@ func _add_character_card(character: Dictionary) -> void:
 	avatar.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	avatar.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	avatar.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	avatar.texture = _character_texture()
+	avatar.texture = _character_texture(character)
 	top.add_child(avatar)
 	var details := VBoxContainer.new()
 	details.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -293,10 +293,16 @@ func _character_location_available(character: Dictionary) -> bool:
 		return false
 	return not GameState.map_data_for_location(bank_id, map_num, region_id).is_empty()
 
-func _character_texture() -> Texture2D:
+func _character_texture(character: Dictionary) -> Texture2D:
 	if not GameState.has_content() or GameState.content == null:
 		return null
-	var sprite: Dictionary = GameState.content.render_facing_object_sprite(19, 1, false, 0)
+	var region_id: int = int(character.get("region_id", character.get("region", -1)))
+	var sprite_content: OpenMMOContent = GameState.content_for_region("hoenn" if region_id == 1 else "kanto")
+	if sprite_content == null:
+		sprite_content = GameState.content
+	var gender: int = int(character.get("gender", 0))
+	var player_gfx: int = int(sprite_content.source_profile.get("player_object_graphics_id_female" if gender == 1 else "player_object_graphics_id", 0))
+	var sprite: Dictionary = sprite_content.render_facing_object_sprite(player_gfx, 1, false, 0)
 	return sprite.get("texture") as Texture2D
 
 func _location_text(character: Dictionary) -> String:
