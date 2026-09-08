@@ -2828,10 +2828,14 @@ func _read_map_objects(header_offset: int, map_id: String) -> Array:
 			_register_dialogue(map_id, local_id, script_offset, dialogue)
 		var sprite: Dictionary = render_object_sprite(graphics_id, 0)
 		var sprite_ok: bool = bool(sprite.get("ok", false))
+		var format: Dictionary = source_profile.get("format", {})
+		var dynamic_graphics_base: int = int(format.get("dynamic_object_graphics_base", -1))
+		var dynamic_graphics_count: int = int(format.get("dynamic_object_graphics_count", 0))
+		var dynamic_graphics_id: bool = dynamic_graphics_base >= 0 and graphics_id >= dynamic_graphics_base and graphics_id < dynamic_graphics_base + dynamic_graphics_count
 		var resolved_graphics_id: int = int(sprite.get("resolved_graphics_id", graphics_id))
 		var object_spec: Dictionary = _object_sprite_specs().get(resolved_graphics_id, {})
 		var inanimate_object: bool = bool(object_spec.get("inanimate", false))
-		objects.append({"kind": "object", "local_id": local_id, "graphics_id": graphics_id, "resolved_graphics_id": resolved_graphics_id, "hide_flag_id": _read_u16(offset + 0x14), "x": _read_s16(offset + 4), "y": _read_s16(offset + 6), "elevation": int(rom_data[offset + 8]), "movement_type": movement_type, "default_facing": default_facing, "facing": default_facing, "script_offset": script_offset, "dialogue_id": str(dialogue.get("id", "")), "dialogue_pages": dialogue.get("pages", []), "texture": sprite.get("texture") if sprite_ok else null, "width": int(sprite.get("width", object_spec.get("width", 0))), "height": int(sprite.get("height", object_spec.get("height", 0))), "frame_count": int(sprite.get("frame_count", 1)), "render": sprite_ok, "blocks_movement": true, "interactable": true, "inanimate": inanimate_object})
+		objects.append({"kind": "object", "local_id": local_id, "graphics_id": graphics_id, "resolved_graphics_id": resolved_graphics_id, "hide_flag_id": _read_u16(offset + 0x14), "x": _read_s16(offset + 4), "y": _read_s16(offset + 6), "elevation": int(rom_data[offset + 8]), "movement_type": movement_type, "default_facing": default_facing, "facing": default_facing, "script_offset": script_offset, "dialogue_id": str(dialogue.get("id", "")), "dialogue_pages": dialogue.get("pages", []), "texture": sprite.get("texture") if sprite_ok else null, "width": int(sprite.get("width", object_spec.get("width", 0))), "height": int(sprite.get("height", object_spec.get("height", 0))), "frame_count": int(sprite.get("frame_count", 1)), "render": sprite_ok or dynamic_graphics_id, "blocks_movement": true, "interactable": true, "inanimate": inanimate_object})
 	return objects
 
 func _initial_object_facing(movement_type: int) -> int:

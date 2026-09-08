@@ -699,13 +699,15 @@ func _on_character_state_changed(value: Dictionary) -> void:
 func _on_story_state_changed(_value: Dictionary) -> void:
 	_sync_map_entities()
 	if map_view != null:
-		map_view.queue_redraw()
+		map_view.refresh_story_objects()
 
 func _on_story_state_resynced(_value: Dictionary) -> void:
 	removed_npc_entities.clear()
 	npc_entity_maps.clear()
 	ignore_stale_entity_removals = true
 	_sync_map_entities()
+	if map_view != null:
+		map_view.refresh_story_objects()
 
 func _on_shop_catalog(catalog: Dictionary) -> void:
 	if dialogue_overlay != null and dialogue_overlay.is_open():

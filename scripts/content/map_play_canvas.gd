@@ -304,6 +304,23 @@ func _sprite_content_for_region(region_id: int) -> OpenMMOContent:
 	var region_content: OpenMMOContent = GameState.content_for_region("kanto") if region_id == 0 else GameState.content_for_region("hoenn") if region_id == 1 else null
 	return region_content if region_content != null else content
 
+func _resolve_dynamic_graphics_id(graphics_id: int, region_id: int) -> int:
+	var sprite_content: OpenMMOContent = _sprite_content_for_region(region_id)
+	if sprite_content == null:
+		return graphics_id
+	var format: Dictionary = sprite_content.source_profile.get("format", {})
+	var dynamic_base: int = int(format.get("dynamic_object_graphics_base", -1))
+	var variable_base: int = int(format.get("dynamic_object_graphics_variable_base", -1))
+	var dynamic_count: int = int(format.get("dynamic_object_graphics_count", 0))
+	var graphics_count: int = int(sprite_content.source_profile.get("object_event_graphics_count", 0))
+	if dynamic_base < 0 or variable_base < 0 or dynamic_count <= 0 or graphics_id < dynamic_base or graphics_id >= dynamic_base + dynamic_count:
+		return graphics_id
+	var resolved_graphics_id: int = GameState.story_variable(region_id, variable_base + graphics_id - dynamic_base, -1)
+	return resolved_graphics_id if resolved_graphics_id >= 0 and resolved_graphics_id < graphics_count else graphics_id
+
+func _content_region_id() -> int:
+	return 1 if content != null and str(content.source_profile.get("region", "")).to_lower() == "hoenn" else 0
+
 func _entity_on_current_map(entity: Dictionary, entity_map_id: String) -> bool:
 	if entity_map_id.is_empty() or entity_map_id == map_id or region_origins.has(entity_map_id):
 		return true
@@ -716,8 +733,10 @@ func set_world_entities(values: Array, local_character_id: int) -> void:
 		if entity_map_id.is_empty():
 			entity_map_id = map_id
 		var is_npc: bool = bool(entity.get("npc", false))
-		var graphics_id: int = int(entity.get("resolved_graphics_id", entity.get("graphics_id", entity.get("graphic_id", entity.get("sprite_id", 19))))) if is_npc else 19
 		var sprite_region_id: int = int(entity.get("sprite_region_id", entity.get("region_id", 1)))
+		var graphics_id: int = int(entity.get("resolved_graphics_id", entity.get("graphics_id", entity.get("graphic_id", entity.get("sprite_id", 19))))) if is_npc else 19
+		if is_npc:
+			graphics_id = _resolve_dynamic_graphics_id(graphics_id, sprite_region_id)
 		var facing: int = int(entity.get("facing", 1))
 		var entity_id: int = int(entity.get("entity_id", entity.get("character_id", entity.get("user_id", 0))))
 		var entity_key: String = "%s:%s" % [str(entity_id), entity_map_id]
@@ -1506,6 +1525,10 @@ func _refresh_object_textures() -> void:
 	if regions.is_empty():
 		_refresh_object_list(objects)
 
+func refresh_story_objects() -> void:
+	_refresh_object_textures()
+	queue_redraw()
+
 func _refresh_object_list(values: Array) -> void:
 	if content == null:
 		return
@@ -1513,7 +1536,9 @@ func _refresh_object_list(values: Array) -> void:
 		if not object_value is Dictionary or not bool(object_value.get("render", true)):
 			continue
 		var object: Dictionary = object_value
-		var sprite: Dictionary = content.render_facing_object_sprite(int(object.get("graphics_id", -1)), int(object.get("facing", object.get("default_facing", 1))), false, 0)
+		var graphics_id: int = _resolve_dynamic_graphics_id(int(object.get("graphics_id", -1)), _content_region_id())
+		object["resolved_graphics_id"] = graphics_id
+		var sprite: Dictionary = content.render_facing_object_sprite(graphics_id, int(object.get("facing", object.get("default_facing", 1))), false, 0)
 		if bool(sprite.get("ok", false)):
 			object["texture"] = sprite.get("texture")
 			object["width"] = int(sprite.get("width", 0))
