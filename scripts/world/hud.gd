@@ -6,6 +6,7 @@ signal shop_buy_requested(item_id: int, quantity: int, exchange_type_index: int)
 signal shop_sell_requested(item_entity_id: int, quantity: int)
 signal shop_closed
 signal wall_clock_confirmed(hour: int, minute: int)
+signal menu_action_requested(action: String)
 
 const PARTY_COUNT: int = 6
 var location_label: Label
@@ -67,6 +68,9 @@ func set_state(content, map_id: String, state: Dictionary = {}, party: Array = [
 	current_state = state
 	current_party = party
 	_refresh()
+
+func _game_state() -> Node:
+	return get_node_or_null("/root/GameState")
 
 func _build_ui() -> void:
 	var info_panel: PanelContainer = PanelContainer.new()
@@ -218,23 +222,29 @@ func _build_ui() -> void:
 	var bag_close: Button = _make_button("Close")
 	bag_close.pressed.connect(toggle_bag)
 	bag_box.add_child(bag_close)
-	menu_panel = _make_popup_panel("Menu")
-	menu_panel.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
-	menu_panel.offset_left = -220.0
-	menu_panel.offset_top = -250.0
-	menu_panel.offset_right = -16.0
-	menu_panel.offset_bottom = -72.0
+	menu_panel = PanelContainer.new()
+	menu_panel.set_anchors_preset(Control.PRESET_CENTER)
+	menu_panel.offset_left = -128.0
+	menu_panel.offset_top = -172.0
+	menu_panel.offset_right = 128.0
+	menu_panel.offset_bottom = 172.0
+	menu_panel.z_index = 20
+	menu_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	menu_panel.add_theme_stylebox_override("panel", _panel_style(Color("30383d"), Color("171c1f"), 4, 1))
 	add_child(menu_panel)
-	var menu_box: VBoxContainer = menu_panel.get_child(0) as VBoxContainer
-	var party_button: Button = _make_button("Party")
-	party_button.pressed.connect(_on_party_pressed)
-	menu_box.add_child(party_button)
-	var menu_bag_button: Button = _make_button("Bag")
-	menu_bag_button.pressed.connect(toggle_bag)
-	menu_box.add_child(menu_bag_button)
-	var menu_close: Button = _make_button("Close")
-	menu_close.pressed.connect(toggle_menu)
-	menu_box.add_child(menu_close)
+	var menu_margin: MarginContainer = MarginContainer.new()
+	menu_margin.add_theme_constant_override("margin_left", 14)
+	menu_margin.add_theme_constant_override("margin_top", 14)
+	menu_margin.add_theme_constant_override("margin_right", 14)
+	menu_margin.add_theme_constant_override("margin_bottom", 14)
+	menu_panel.add_child(menu_margin)
+	var menu_box: VBoxContainer = VBoxContainer.new()
+	menu_box.add_theme_constant_override("separation", 7)
+	menu_margin.add_child(menu_box)
+	for entry in [{"label": "Return", "action": "return"}, {"label": "Settings", "action": "settings"}, {"label": "FAQ", "action": "faq"}, {"label": "Support Request", "action": "support"}, {"label": "Logout", "action": "logout"}, {"label": "Exit", "action": "exit"}]:
+		var menu_action_button: Button = _make_escape_menu_button(str(entry.get("label", "")))
+		menu_action_button.pressed.connect(_on_escape_menu_action.bind(str(entry.get("action", "return"))))
+		menu_box.add_child(menu_action_button)
 	shop_panel = _make_popup_panel("Mart")
 	shop_panel.set_anchors_preset(Control.PRESET_CENTER)
 	shop_panel.offset_left = -300.0
@@ -359,9 +369,11 @@ func _build_wall_clock() -> void:
 func show_wall_clock() -> void:
 	clock_hour = 10
 	clock_minute = 0
-	if GameState.game_clock_minutes >= 0:
-		clock_hour = int(GameState.game_clock_minutes / 60) % 24
-		clock_minute = int(GameState.game_clock_minutes % 60)
+	var game_state: Node = _game_state()
+	var game_clock_minutes: int = int(game_state.get("game_clock_minutes")) if game_state != null else -1
+	if game_clock_minutes >= 0:
+		clock_hour = int(game_clock_minutes / 60) % 24
+		clock_minute = int(game_clock_minutes % 60)
 		clock_minute = int(clock_minute / 10) * 10
 	clock_open = true
 	clock_overlay.visible = true
@@ -393,8 +405,10 @@ func _refresh_wall_clock() -> void:
 	clock_hour_hand.points = PackedVector2Array([center, center + Vector2(cos(hour_angle), sin(hour_angle)) * 50.0])
 
 func _confirm_wall_clock() -> void:
-	GameState.game_clock_minutes = clock_hour * 60 + clock_minute
-	GameState.game_clock_set_msec = Time.get_ticks_msec()
+	var game_state: Node = _game_state()
+	if game_state != null:
+		game_state.set("game_clock_minutes", clock_hour * 60 + clock_minute)
+		game_state.set("game_clock_set_msec", Time.get_ticks_msec())
 	hide_wall_clock()
 	wall_clock_confirmed.emit(clock_hour, clock_minute)
 	_refresh_time()
@@ -429,6 +443,18 @@ func _make_button(text_value: String) -> Button:
 	button.add_theme_stylebox_override("normal", _panel_style(Color("182231e8"), Color("5f7185")))
 	button.add_theme_stylebox_override("hover", _panel_style(Color("26364ce8"), Color("82a8d3")))
 	button.add_theme_stylebox_override("pressed", _panel_style(Color("314b6be8"), Color("a7c8ed")))
+	return button
+
+func _make_escape_menu_button(text_value: String) -> Button:
+	var button: Button = Button.new()
+	button.text = text_value
+	button.custom_minimum_size = Vector2(226.0, 38.0)
+	button.focus_mode = Control.FOCUS_ALL
+	button.mouse_filter = Control.MOUSE_FILTER_STOP
+	button.add_theme_font_size_override("font_size", 14)
+	button.add_theme_stylebox_override("normal", _panel_style(Color("343c41"), Color("1c2327"), 2, 1))
+	button.add_theme_stylebox_override("hover", _panel_style(Color("465158"), Color("9db6c4"), 2, 1))
+	button.add_theme_stylebox_override("pressed", _panel_style(Color("56636b"), Color("c5d6de"), 2, 1))
 	return button
 
 func _select_bag_category(category: String) -> void:
@@ -518,6 +544,29 @@ func toggle_menu() -> void:
 	if menu_open:
 		bag_open = false
 	_refresh_panels()
+	if menu_open and menu_panel != null and menu_panel.get_child_count() > 0:
+		var menu_margin: MarginContainer = menu_panel.get_child(0) as MarginContainer
+		if menu_margin != null and menu_margin.get_child_count() > 0:
+			var menu_box: VBoxContainer = menu_margin.get_child(0) as VBoxContainer
+			if menu_box != null and menu_box.get_child_count() > 0:
+				(menu_box.get_child(0) as Button).grab_focus()
+
+func handle_escape() -> void:
+	if shop_open:
+		return
+	if bag_open:
+		toggle_bag()
+	else:
+		toggle_menu()
+
+func _on_escape_menu_action(action: String) -> void:
+	if action == "return":
+		menu_open = false
+		_refresh_panels()
+		return
+	menu_open = false
+	_refresh_panels()
+	menu_action_requested.emit(action)
 
 func _on_party_pressed() -> void:
 	menu_open = false
@@ -720,9 +769,11 @@ func _refresh_time() -> void:
 	var weekday: String = str(weekdays[clampi(int(now.get("weekday", 0)), 0, weekdays.size() - 1)])
 	var hour: int = int(now.get("hour", 0))
 	var minute: int = int(now.get("minute", 0))
-	if GameState.game_clock_minutes >= 0:
-		var elapsed_min: int = int((Time.get_ticks_msec() - GameState.game_clock_set_msec) / 60000.0)
-		var total: int = posmod(GameState.game_clock_minutes + elapsed_min, 24 * 60)
+	var game_state: Node = _game_state()
+	var game_clock_minutes: int = int(game_state.get("game_clock_minutes")) if game_state != null else -1
+	if game_clock_minutes >= 0:
+		var elapsed_min: int = int((Time.get_ticks_msec() - int(game_state.get("game_clock_set_msec"))) / 60000.0)
+		var total: int = posmod(game_clock_minutes + elapsed_min, 24 * 60)
 		hour = int(total / 60)
 		minute = total % 60
 	time_label.text = "%s, %02d:%02d" % [weekday, hour, minute]

@@ -1,6 +1,7 @@
 extends Control
 
 signal battle_requested
+signal logout_requested
 
 const MAP_VIEW_SCRIPT = preload("res://scripts/content/map_play_canvas.gd")
 const HUD_SCRIPT = preload("res://scripts/world/hud.gd")
@@ -81,6 +82,7 @@ func _build_ui() -> void:
 	map_view.interaction_requested.connect(_on_interaction_requested)
 	map_view.sound_requested.connect(_on_sound_requested)
 	map_view.location_changed.connect(_on_local_location_changed)
+	map_view.back_requested.connect(_on_escape_requested)
 	add_child(map_view)
 	map_view.set_input_enabled(true)
 	audio = AUDIO_SCRIPT.new()
@@ -92,6 +94,7 @@ func _build_ui() -> void:
 	hud.shop_buy_requested.connect(_on_shop_buy_requested)
 	hud.shop_sell_requested.connect(_on_shop_sell_requested)
 	hud.shop_closed.connect(_on_shop_closed)
+	hud.menu_action_requested.connect(_on_menu_action_requested)
 	add_child(hud)
 	var initial_map_id: String = GameState.map_id_for_location(int(GameState.current_character.get("bank_id", -1)), int(GameState.current_character.get("map_id", -1)), int(GameState.current_character.get("region_id", GameState.current_character.get("region", -1)))) if GameState.content != null else ""
 	var initial_party: Array = GameState.current_character.get("party", []) if GameState.current_character.get("party", []) is Array else []
@@ -1171,11 +1174,35 @@ func _on_dialogue_choice(value: int) -> void:
 func _on_sound_requested(effect: String) -> void:
 	audio.play_effect(effect)
 
+func _on_escape_requested() -> void:
+	if hud != null:
+		hud.handle_escape()
+
+func _on_menu_action_requested(action: String) -> void:
+	match action:
+		"logout":
+			GameState.disconnect_game()
+			GameState.current_character.clear()
+			logout_requested.emit()
+		"exit":
+			get_tree().quit()
+		"support":
+			OS.shell_open("https://support.pokemmo.com")
+		"settings":
+			status_label.text = "Settings are available from the login screen."
+		"faq":
+			status_label.text = "FAQ is available at pokemmo.com."
+
 func _unhandled_input(event: InputEvent) -> void:
 	if not event is InputEventKey:
 		return
 	var key_event: InputEventKey = event as InputEventKey
 	if hud != null and hud.clock_open and hud.handle_wall_clock_input(key_event):
+		get_viewport().set_input_as_handled()
+		return
+	if key_event.keycode == KEY_ESCAPE and key_event.pressed and not key_event.echo:
+		if hud != null:
+			hud.handle_escape()
 		get_viewport().set_input_as_handled()
 		return
 	if key_event.keycode == KEY_F3 and key_event.pressed and not key_event.echo:

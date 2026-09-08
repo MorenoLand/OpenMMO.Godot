@@ -36,6 +36,7 @@ func _show_world() -> void:
 	battle_screen_active = false
 	var screen = _replace_screen(preload("res://scenes/world.tscn"))
 	screen.battle_requested.connect(_show_battle)
+	screen.logout_requested.connect(_show_auth)
 
 func _show_battle() -> void:
 	if battle_screen_active:
