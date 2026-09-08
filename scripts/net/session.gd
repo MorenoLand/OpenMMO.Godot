@@ -15,6 +15,9 @@ enum State { DISCONNECTED, CONNECTING, WAITING_SERVER_HELLO, DERIVING_KEYS, ESTA
 const XOR_KEY_RANDOM: int = 3214621489648854472
 const XOR_KEY_TIMESTAMP: int = -4214651440992349575
 const CONNECT_TIMEOUT_MSEC: int = 10000
+const MAX_READ_BYTES_PER_POLL: int = 65536
+const MAX_FRAMES_PER_POLL: int = 16
+const MAX_POLL_USEC: int = 4000
 
 var peer: StreamPeerTCP = StreamPeerTCP.new()
 var state: State = State.DISCONNECTED
@@ -109,7 +112,7 @@ func _process(_delta: float) -> void:
 	_read_available()
 
 func _read_available() -> void:
-	var available: int = peer.get_available_bytes()
+	var available: int = mini(peer.get_available_bytes(), MAX_READ_BYTES_PER_POLL)
 	if available <= 0:
 		return
 	var result: Array = peer.get_partial_data(available)
@@ -118,6 +121,8 @@ func _read_available() -> void:
 		return
 	var chunk: PackedByteArray = result[1] as PackedByteArray
 	receive_buffer.append_array(chunk)
+	var frame_count: int = 0
+	var poll_start_usec: int = Time.get_ticks_usec()
 	while receive_buffer.size() >= 2:
 		var frame_length: int = receive_buffer.decode_u16(0)
 		if frame_length < 3 or frame_length > 0xFFFF:
@@ -129,6 +134,9 @@ func _read_available() -> void:
 		receive_buffer = receive_buffer.slice(frame_length)
 		_handle_frame(frame)
 		if state == State.DISCONNECTED:
+			return
+		frame_count += 1
+		if frame_count >= MAX_FRAMES_PER_POLL or Time.get_ticks_usec() - poll_start_usec >= MAX_POLL_USEC:
 			return
 
 func _handle_frame(frame: PackedByteArray) -> void:
@@ -238,15 +246,20 @@ func _decompress_packet(packet: PackedByteArray) -> PackedByteArray:
 		inflater_needs_header = false
 	compressed.append_array(PackedByteArray([0, 0, 0xFF, 0xFF]))
 	var input_offset: int = 0
+	var no_progress_count: int = 0
 	while input_offset < compressed.size():
 		var put_result: Array = inflater.put_partial_data(compressed.slice(input_offset))
 		if put_result.size() < 2 or int(put_result[0]) != OK:
 			_fail("OpenMMO compressed frame could not be inflated")
 			return PackedByteArray()
 		var consumed: int = int(put_result[1])
-		if consumed <= 0 and inflater.get_available_bytes() <= 0:
-			_fail("OpenMMO compressed frame made no progress")
-			return PackedByteArray()
+		if consumed <= 0:
+			no_progress_count += 1
+			if inflater.get_available_bytes() <= 0 or no_progress_count > 2:
+				_fail("OpenMMO compressed frame made no progress")
+				return PackedByteArray()
+		else:
+			no_progress_count = 0
 		input_offset += consumed
 		while inflater.get_available_bytes() > 0:
 			var result: Array = inflater.get_partial_data(inflater.get_available_bytes())
