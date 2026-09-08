@@ -310,7 +310,7 @@ func _finish_initial_send_out() -> void:
 
 func _make_mon_card(opponent: bool) -> PanelContainer:
 	var card := PanelContainer.new()
-	card.custom_minimum_size = Vector2(306.0, 20.0) if opponent else Vector2(298.0, 33.0)
+	card.custom_minimum_size = Vector2(306.0, 27.0) if opponent else Vector2(298.0, 42.0)
 	card.add_theme_stylebox_override("panel", _hud_style("battle-ui-enemy" if opponent else "battle-ui-self", 0, 0, 0, 0))
 	var content := Control.new()
 	content.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -318,9 +318,11 @@ func _make_mon_card(opponent: bool) -> PanelContainer:
 	card.add_child(content)
 	var name_label := Label.new()
 	name_label.anchor_left = 0.06
-	name_label.anchor_top = 0.03
+	name_label.anchor_top = 0.0
 	name_label.anchor_right = 0.62
-	name_label.anchor_bottom = 0.48
+	name_label.anchor_bottom = 0.0
+	name_label.offset_top = 1.0
+	name_label.offset_bottom = 16.0
 	name_label.add_theme_font_size_override("font_size", 12)
 	name_label.add_theme_color_override("font_color", Color.WHITE)
 	name_label.add_theme_color_override("font_outline_color", Color("434343"))
@@ -328,9 +330,11 @@ func _make_mon_card(opponent: bool) -> PanelContainer:
 	content.add_child(name_label)
 	var level_label := Label.new()
 	level_label.anchor_left = 0.63
-	level_label.anchor_top = 0.03
+	level_label.anchor_top = 0.0
 	level_label.anchor_right = 0.94
-	level_label.anchor_bottom = 0.48
+	level_label.anchor_bottom = 0.0
+	level_label.offset_top = 1.0
+	level_label.offset_bottom = 16.0
 	level_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	level_label.add_theme_font_size_override("font_size", 11)
 	level_label.add_theme_color_override("font_color", Color.WHITE)
@@ -340,19 +344,21 @@ func _make_mon_card(opponent: bool) -> PanelContainer:
 	var hp_bar := ProgressBar.new()
 	hp_bar.show_percentage = false
 	hp_bar.anchor_left = 0.12
-	hp_bar.anchor_top = 0.52 if opponent else 0.44
+	hp_bar.anchor_top = 0.0
 	hp_bar.anchor_right = 0.92
 	hp_bar.anchor_bottom = hp_bar.anchor_top
-	hp_bar.offset_top = -3.0
-	hp_bar.offset_bottom = 3.0
+	hp_bar.offset_top = 18.0
+	hp_bar.offset_bottom = 24.0
 	hp_bar.add_theme_stylebox_override("background", _hud_style("health-progressbar.background", 2, 2, 1, 1))
 	hp_bar.add_theme_stylebox_override("fill", _hud_style("health-progressbar-green.progressImage", 1, 1, 1, 1))
 	content.add_child(hp_bar)
 	var hp_label := Label.new()
 	hp_label.anchor_left = 0.64
-	hp_label.anchor_top = 0.63
+	hp_label.anchor_top = 0.0
 	hp_label.anchor_right = 0.94
-	hp_label.anchor_bottom = 0.94
+	hp_label.anchor_bottom = 0.0
+	hp_label.offset_top = 25.0
+	hp_label.offset_bottom = 38.0
 	hp_label.add_theme_font_size_override("font_size", 10)
 	hp_label.add_theme_color_override("font_color", Color.WHITE)
 	hp_label.add_theme_color_override("font_outline_color", Color("434343"))
@@ -369,11 +375,11 @@ func _make_mon_card(opponent: bool) -> PanelContainer:
 		var xp_bar := ProgressBar.new()
 		xp_bar.show_percentage = false
 		xp_bar.anchor_left = 0.15
-		xp_bar.anchor_top = 0.88
+		xp_bar.anchor_top = 0.0
 		xp_bar.anchor_right = 0.90
 		xp_bar.anchor_bottom = xp_bar.anchor_top
-		xp_bar.offset_top = -1.0
-		xp_bar.offset_bottom = 1.0
+		xp_bar.offset_top = 38.0
+		xp_bar.offset_bottom = 40.0
 		xp_bar.max_value = 1.0
 		xp_bar.add_theme_stylebox_override("background", _hud_style("xp-progressbar.background", 5, 5, 1, 1))
 		xp_bar.add_theme_stylebox_override("fill", _hud_style("xp-progressbar.progressImage", 0, 0, 0, 0))
@@ -587,6 +593,8 @@ func _refresh_battle_background() -> void:
 	if battle_background == null:
 		return
 	battle_background.texture = GameState.content.battle_background_texture(int(state.get("background", 0))) if GameState.content != null else null
+	opponent_platform.visible = battle_background.texture == null
+	player_platform.visible = battle_background.texture == null
 
 func _active_mon(party: Array, active_slot: int) -> Dictionary:
 	for mon_value in party:

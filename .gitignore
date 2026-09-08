@@ -21,7 +21,14 @@ saves/
 captures/
 generated/
 assets-extracted/
-assets/
+assets/*
+!assets/openmmo/
+assets/openmmo/*
+!assets/openmmo/default/
+assets/openmmo/default/*
+!assets/openmmo/default/res/
+assets/openmmo/default/res/*
+!assets/openmmo/default/res/battle-hud.png
 tests/
 /SESSION[0-9]*/
 user://

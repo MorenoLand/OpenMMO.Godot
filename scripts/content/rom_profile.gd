@@ -103,6 +103,9 @@ static func _fire_red_profile(catalog_code: String = "BPRE", revision: int = 0, 
 	profile["player_object_graphics_id_female"] = 7
 	var format: Dictionary = _fire_red_format()
 	format["battle_move_table_offset"] = _gba_file_offset(int(row.get("battle_moves", 0)))
+	var background_tables: Dictionary = {"BPRD": 2419972, "BPRE": 2420388 if revision == 1 else 2420276, "BPRF": 2396736, "BPRI": 2391768, "BPRS": 2401696}
+	format["battle_background_table_offset"] = int(background_tables[catalog_code])
+	format["battle_background_count"] = 10
 	profile["format"] = format
 	if profile_code == "BPRE":
 		profile["audio"] = {"song_table_offset": 0x4A332C, "anchor_song_ids": [291, 300, 303]}
