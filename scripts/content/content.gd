@@ -339,13 +339,11 @@ func _populate_fire_red_object_sprites(object_sprites: Dictionary) -> void:
 	var palette_table_offset: int = int(source_profile.get("object_event_palette_table", -1))
 	var entry_count: int = int(source_profile.get("object_event_graphics_count", 152))
 	if table_offset < 0:
-		if str(source_profile.get("region", "")) != "Kanto":
-			return
-		table_offset = _find_fire_red_object_graphics_table(entry_count)
+		var table_info: Dictionary = _fire_red_object_event_tables()
+		table_offset = int(table_info.get("graphics", -1))
+		palette_table_offset = int(table_info.get("palette", palette_table_offset))
 	if table_offset < 0:
 		return
-	if palette_table_offset < 0:
-		palette_table_offset = _find_fire_red_object_palette_table(table_offset, entry_count)
 	if palette_table_offset < 0 or entry_count <= 0:
 		return
 	for entry in range(entry_count):
@@ -2822,18 +2820,18 @@ func _read_map_objects(header_offset: int, map_id: String) -> Array:
 		var graphics_id: int = int(rom_data[offset + 1])
 		var movement_type: int = int(rom_data[offset + 9])
 		var default_facing: int = _initial_object_facing(movement_type)
-		var sprite: Dictionary = render_object_sprite(graphics_id, 0)
-		if not bool(sprite.get("ok", false)):
-			continue
 		var local_id: int = int(rom_data[offset])
 		var script_offset: int = _read_rom_pointer(offset + 0x10)
 		var dialogue: Dictionary = _read_dialogue_for_script(script_offset)
 		if not dialogue.is_empty():
 			dialogue["id"] = "%s:%d" % [map_id, local_id]
 			_register_dialogue(map_id, local_id, script_offset, dialogue)
-		var object_spec: Dictionary = _object_sprite_specs().get(int(sprite.get("resolved_graphics_id", graphics_id)), {})
+		var sprite: Dictionary = render_object_sprite(graphics_id, 0)
+		var sprite_ok: bool = bool(sprite.get("ok", false))
+		var resolved_graphics_id: int = int(sprite.get("resolved_graphics_id", graphics_id))
+		var object_spec: Dictionary = _object_sprite_specs().get(resolved_graphics_id, {})
 		var inanimate_object: bool = bool(object_spec.get("inanimate", false))
-		objects.append({"kind": "object", "local_id": local_id, "graphics_id": graphics_id, "resolved_graphics_id": int(sprite.get("resolved_graphics_id", graphics_id)), "hide_flag_id": _read_u16(offset + 0x14), "x": _read_s16(offset + 4), "y": _read_s16(offset + 6), "elevation": int(rom_data[offset + 8]), "movement_type": movement_type, "default_facing": default_facing, "facing": default_facing, "script_offset": script_offset, "dialogue_id": str(dialogue.get("id", "")), "dialogue_pages": dialogue.get("pages", []), "texture": sprite.get("texture"), "width": int(sprite.get("width", 0)), "height": int(sprite.get("height", 0)), "frame_count": int(sprite.get("frame_count", 1)), "render": true, "blocks_movement": true, "interactable": true, "inanimate": inanimate_object})
+		objects.append({"kind": "object", "local_id": local_id, "graphics_id": graphics_id, "resolved_graphics_id": resolved_graphics_id, "hide_flag_id": _read_u16(offset + 0x14), "x": _read_s16(offset + 4), "y": _read_s16(offset + 6), "elevation": int(rom_data[offset + 8]), "movement_type": movement_type, "default_facing": default_facing, "facing": default_facing, "script_offset": script_offset, "dialogue_id": str(dialogue.get("id", "")), "dialogue_pages": dialogue.get("pages", []), "texture": sprite.get("texture") if sprite_ok else null, "width": int(sprite.get("width", object_spec.get("width", 0))), "height": int(sprite.get("height", object_spec.get("height", 0))), "frame_count": int(sprite.get("frame_count", 1)), "render": sprite_ok, "blocks_movement": true, "interactable": true, "inanimate": inanimate_object})
 	return objects
 
 func _initial_object_facing(movement_type: int) -> int:
