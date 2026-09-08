@@ -325,60 +325,12 @@ func _object_graphics_info_is_valid(structure_offset: int) -> bool:
 	var frame_size: int = _read_rom_u16(images_offset + 4)
 	return data_offset >= 0 and frame_size > 0 and frame_size <= 0x1000 and _valid_range(data_offset, frame_size)
 
-func _find_fire_red_object_graphics_table(entry_count: int) -> int:
-	var required_entries: int = mini(entry_count, 16)
-	if required_entries < 8 or rom_data.size() < required_entries * 4:
-		return -1
-	var best_offset: int = -1
-	var best_score: int = 0
-	for candidate in range(0, rom_data.size() - required_entries * 4, 4):
-		if _read_rom_pointer(candidate) < 0:
-			continue
-		var valid_entries: int = 0
-		for entry in range(required_entries):
-			if _object_graphics_info_is_valid(_read_rom_pointer(candidate + entry * 4)):
-				valid_entries += 1
-		if valid_entries != required_entries:
-			continue
-		var score: int = valid_entries
-		for entry in range(required_entries, entry_count):
-			if _object_graphics_info_is_valid(_read_rom_pointer(candidate + entry * 4)):
-				score += 1
-		if score > best_score:
-			best_score = score
-			best_offset = candidate
-	return best_offset if best_score >= required_entries else -1
-
-func _find_fire_red_object_palette_table(table_offset: int, entry_count: int) -> int:
-	var palette_tags: Dictionary = {}
-	for entry in range(entry_count):
-		var structure_offset: int = _read_rom_pointer(table_offset + entry * 4)
-		if structure_offset < 0 or not _object_graphics_info_is_valid(structure_offset):
-			continue
-		var palette_tag: int = _read_rom_u16(structure_offset + 2)
-		if palette_tag >= 0:
-			palette_tags[palette_tag] = true
-	if palette_tags.is_empty():
-		return -1
-	var best_offset: int = -1
-	var best_score: int = 0
-	for candidate in range(0, rom_data.size() - 8, 4):
-		var first_pointer: int = _read_rom_pointer(candidate)
-		var first_tag: int = _read_rom_u16(candidate + 4)
-		if first_pointer < 0 or not palette_tags.has(first_tag):
-			continue
-		var score: int = 0
-		for entry in range(32):
-			var record_offset: int = candidate + entry * 8
-			var palette_pointer: int = _read_rom_pointer(record_offset)
-			var palette_tag: int = _read_rom_u16(record_offset + 4)
-			if palette_pointer < 0 or not palette_tags.has(palette_tag):
-				break
-			score += 1
-		if score > best_score:
-			best_score = score
-			best_offset = candidate
-	return best_offset if best_score >= 4 else -1
+func _fire_red_object_event_tables() -> Dictionary:
+	if str(source_profile.get("id", "")) != "pokemon-fire-red":
+		return {}
+	var tables: Dictionary = source_profile.get("object_event_graphics_tables", {})
+	var revision: int = 1 if rom_sha1 == FIRE_RED_REV1_SHA1 or _fire_red_revision() >= 1 else 0
+	return tables.get(revision, {})
 
 func _populate_fire_red_object_sprites(object_sprites: Dictionary) -> void:
 	if rom_data.is_empty():
