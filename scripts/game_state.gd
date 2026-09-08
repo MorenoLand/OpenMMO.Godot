@@ -720,6 +720,7 @@ func _on_game_packet(opcode: int, payload: PackedByteArray) -> void:
 		var bank_id: int = int(response.get("bank_id", -1))
 		var map_id: int = int(response.get("map_id", -1))
 		var region_id: int = _effective_location_region(int(response.get("region_id", -1)), bank_id, int(response.get("rom_type", -1)))
+		response["content_region_id"] = region_id
 		activate_content_for_location(bank_id, map_id, region_id)
 		var local_map_id: String = map_id_for_location(bank_id, map_id, region_id)
 		var custom_map_value: Variant = response.get("custom_map_gzip", PackedByteArray())

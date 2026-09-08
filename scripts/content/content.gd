@@ -2007,11 +2007,12 @@ func _connected_world_topology(map_id: String, server_maps: Dictionary) -> Dicti
 
 func _server_connections(server_map: Dictionary, server_maps: Dictionary) -> Array:
 	var connections: Array = []
+	var region_id: int = int(server_map.get("content_region_id", server_map.get("region_id", -1)))
 	for connection_value in server_map.get("connections", []):
 		if not connection_value is Dictionary:
 			continue
 		var connection: Dictionary = connection_value
-		var target_map_id: String = _client_map_id_for_server_location(int(connection.get("bank_id", -1)), int(connection.get("map_id", -1)), server_maps)
+		var target_map_id: String = _client_map_id_for_server_location(int(connection.get("bank_id", -1)), int(connection.get("map_id", -1)), server_maps, region_id)
 		if target_map_id.is_empty():
 			continue
 		var direction: int = int(connection.get("direction", 0))
@@ -2020,17 +2021,24 @@ func _server_connections(server_map: Dictionary, server_maps: Dictionary) -> Arr
 		connections.append({"direction": direction, "offset": int(connection.get("offset", 0)), "map_id": target_map_id})
 	return connections
 
-func _client_map_id_for_server_location(bank_id: int, map_index: int, server_maps: Dictionary) -> String:
+func _client_map_id_for_server_location(bank_id: int, map_index: int, server_maps: Dictionary, region_id: int = -1) -> String:
 	for value in server_maps.values():
 		if not value is Dictionary:
 			continue
 		var candidate: Dictionary = value
+		if region_id >= 0 and int(candidate.get("content_region_id", candidate.get("region_id", -1))) != region_id:
+			continue
 		if int(candidate.get("bank_id", -1)) != bank_id or int(candidate.get("map_id", -1)) != map_index:
 			continue
 		var candidate_map_id: String = str(candidate.get("local_map_id", ""))
 		if not candidate_map_id.is_empty():
 			return candidate_map_id
-	return map_id_for_location(bank_id, map_index)
+	var local_bank: int = bank_id
+	var region: String = str(source_profile.get("region", "")).strip_edges().to_lower()
+	if region == "hoenn" and bank_id >= 50:
+		local_bank = bank_id - 50
+	var local_map_id: String = map_id_for_location(local_bank, map_index)
+	return local_map_id if not local_map_id.is_empty() and not map_data(local_map_id).is_empty() else ""
 
 func _build_server_map_cache(map_id: String, server_map: Dictionary, server_maps: Dictionary) -> Dictionary:
 	var width: int = int(server_map.get("width", 0))
@@ -2087,11 +2095,12 @@ func _gzip_decompress(data: PackedByteArray, expected_bytes: int) -> PackedByteA
 	return result[1] as PackedByteArray
 
 func _server_map_donor_cache(server_map: Dictionary, server_maps: Dictionary) -> Dictionary:
+	var region_id: int = int(server_map.get("content_region_id", server_map.get("region_id", -1)))
 	for connection_value in server_map.get("connections", []):
 		if not connection_value is Dictionary:
 			continue
 		var connection: Dictionary = connection_value
-		var donor_map_id: String = _client_map_id_for_server_location(int(connection.get("bank_id", -1)), int(connection.get("map_id", -1)), server_maps)
+		var donor_map_id: String = _client_map_id_for_server_location(int(connection.get("bank_id", -1)), int(connection.get("map_id", -1)), server_maps, region_id)
 		if donor_map_id.is_empty() or donor_map_id.begins_with("server-map-"):
 			continue
 		var donor_cache: Dictionary = _get_or_build_map_cache(donor_map_id)
@@ -2113,6 +2122,8 @@ func _server_map_for_local_map(map_id: String, server_maps: Dictionary) -> Dicti
 		if str(candidate.get("local_map_id", "")) == map_id:
 			return candidate
 		if int(candidate.get("bank_id", -1)) == local_bank and int(candidate.get("map_id", -1)) == local_wire_map:
+			return candidate
+		if str(source_profile.get("region", "")).strip_edges().to_lower() == "hoenn" and int(candidate.get("bank_id", -1)) - 50 == local_bank and int(candidate.get("map_id", -1)) == local_wire_map:
 			return candidate
 	return {}
 

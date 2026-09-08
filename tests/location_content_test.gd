@@ -26,6 +26,11 @@ func _init() -> void:
 		push_error("OpenMMO GBA region normalization is incorrect")
 		_quit_with_state(game_state, previous_contents, previous_content, 1)
 		return
+	hoenn.manifest = {"maps": [{"id": "rom-map-34-0", "name": "Hoenn donor", "map_group": 34, "map_index": 0, "width": 1, "height": 1}]}
+	if str(hoenn.call("_client_map_id_for_server_location", 84, 0, {}, 1)) != "rom-map-34-0":
+		push_error("Hoenn server bank offset did not resolve a custom-map donor")
+		_quit_with_state(game_state, previous_contents, previous_content, 1)
+		return
 	_quit_with_state(game_state, previous_contents, previous_content, 0)
 
 func _quit_with_state(game_state, previous_contents: Dictionary, previous_content: OpenMMOContent, code: int) -> void:
