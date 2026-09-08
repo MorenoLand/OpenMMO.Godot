@@ -4,6 +4,7 @@ signal exit_requested
 
 const OPENMMO_BATTLE_HUD: Texture2D = preload("res://assets/openmmo/default/res/battle-hud.png")
 const OPENMMO_BATTLE_FONT = preload("res://assets/openmmo/default/res/fonts/battle.ttf")
+const OPENMMO_PLAINS_TEXTURE: Texture2D = preload("res://assets/openmmo/default/platforms/u_plains.png")
 const BATTLE_HUD_AREAS: Dictionary = {
 	"health-progressbar.background": Rect2i(35, 8, 13, 6),
 	"health-progressbar.progressImage": Rect2i(20, 9, 1, 4),
@@ -61,6 +62,7 @@ var selection_grid_columns: int = 2
 var selection_buttons: Array[Button] = []
 var input_locked: bool = true
 var initial_send_out_started: bool = false
+var initial_send_out_finished: bool = false
 
 func _ready() -> void:
 	set_process_input(true)
@@ -114,15 +116,17 @@ func _build_ui() -> void:
 	var opponent_card := _make_mon_card(true)
 	opponent_card.anchor_left = 0.03
 	opponent_card.anchor_top = 0.07
-	opponent_card.anchor_right = 0.41
+	opponent_card.anchor_right = opponent_card.anchor_left
 	opponent_card.anchor_bottom = 0.07
+	opponent_card.offset_right = 306.0
 	opponent_card.offset_bottom = 20.0
 	stage_root.add_child(opponent_card)
 	var player_card := _make_mon_card(false)
 	player_card.anchor_left = 0.56
 	player_card.anchor_top = 0.55
-	player_card.anchor_right = 0.97
+	player_card.anchor_right = player_card.anchor_left
 	player_card.anchor_bottom = 0.55
+	player_card.offset_right = 298.0
 	player_card.offset_bottom = 33.0
 	stage_root.add_child(player_card)
 	party_status_box = HBoxContainer.new()
@@ -248,8 +252,8 @@ func _make_battle_viewport() -> SubViewportContainer:
 	camera.look_at_from_position(Vector3(3.8, 3.2, 3.4), Vector3(0.0, 0.25, 0.0), Vector3.UP)
 	camera.current = true
 	battle_field_root.add_child(camera)
-	_add_battle_model("res://assets/openmmo/default/platforms/base.obj", Vector3(1.15, -0.05, -0.85), Vector3(0.82, 0.82, 0.82))
-	_add_battle_model("res://assets/openmmo/default/platforms/base.obj", Vector3(-1.05, -0.05, 1.0), Vector3(1.25, 1.25, 1.25))
+	_add_battle_model("res://assets/openmmo/default/platforms/u_plains.obj", Vector3.ZERO, Vector3.ONE)
+	_add_battle_model("res://assets/openmmo/default/platforms/base.obj", Vector3.ZERO, Vector3.ONE)
 	return container
 
 func _add_battle_model(path: String, position: Vector3, scale: Vector3) -> void:
@@ -269,7 +273,33 @@ func _add_battle_model(path: String, position: Vector3, scale: Vector3) -> void:
 		return
 	model.position = position
 	model.scale = scale
+	_configure_battle_model_materials(model, path.ends_with("u_plains.obj"))
 	battle_field_root.add_child(model)
+
+func _configure_battle_model_materials(node: Node, use_plains_texture: bool) -> void:
+	var mesh_nodes: Array[MeshInstance3D] = []
+	if node is MeshInstance3D:
+		mesh_nodes.append(node as MeshInstance3D)
+	for child in node.find_children("*", "MeshInstance3D", true, false):
+		if child is MeshInstance3D:
+			mesh_nodes.append(child as MeshInstance3D)
+	for mesh_instance in mesh_nodes:
+		if mesh_instance.mesh == null:
+			continue
+		var mesh: ArrayMesh = mesh_instance.mesh.duplicate() as ArrayMesh
+		if mesh == null:
+			continue
+		mesh_instance.mesh = mesh
+		for surface in range(mesh.get_surface_count()):
+			var material: Material = mesh.surface_get_material(surface)
+			var configured: StandardMaterial3D = material.duplicate() as StandardMaterial3D if material is StandardMaterial3D else StandardMaterial3D.new()
+			if use_plains_texture and configured.albedo_texture == null:
+				configured.albedo_texture = OPENMMO_PLAINS_TEXTURE
+			configured.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
+			configured.alpha_scissor_threshold = 0.01
+			configured.cull_mode = BaseMaterial3D.CULL_DISABLED
+			configured.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+			mesh.surface_set_material(surface, configured)
 
 func _animate_battle_intro() -> void:
 	if stage_root == null:
@@ -292,8 +322,11 @@ func _animate_initial_send_out() -> void:
 	var opponent: Dictionary = _active_mon(opponent_party, int(state.get("opponent_active_slot", -1)))
 	var player: Dictionary = _active_mon(player_party, int(state.get("active_slot", -1)))
 	if opponent.is_empty() and player.is_empty():
+		_finish_initial_send_out.call_deferred()
 		return
 	initial_send_out_started = true
+	initial_send_out_finished = false
+	input_locked = true
 	if not opponent.is_empty() and opponent_sprite != null:
 		opponent_sprite.visible = false
 	if not player.is_empty() and player_sprite != null:
@@ -307,6 +340,18 @@ func _animate_initial_send_out() -> void:
 	if not player.is_empty():
 		sequence.tween_interval(0.85)
 		sequence.tween_callback(_animate_send_out.bind({"side": 0, "battle_event": false}))
+	sequence.tween_interval(0.85)
+	sequence.tween_callback(_finish_initial_send_out)
+
+func _finish_initial_send_out() -> void:
+	if not is_inside_tree():
+		return
+	state = GameState.battle_state.duplicate(true)
+	initial_send_out_finished = true
+	var can_act: bool = bool(state.get("can_act", false)) or bool(state.get("force_switch", false))
+	input_locked = not can_act
+	_append_log(_waiting_text() if not can_act and not bool(state.get("battle_complete", false)) else "")
+	_render_state()
 
 func _make_battle_backdrop() -> Texture2D:
 	var width: int = 320
@@ -787,7 +832,7 @@ func _render_actions() -> void:
 		complete.text = "Battle complete."
 		action_box.add_child(complete)
 		return
-	if input_locked or not bool(state.get("can_act", false)):
+	if input_locked or (not bool(state.get("can_act", false)) and not bool(state.get("force_switch", false))):
 		var waiting := Label.new()
 		waiting.text = _waiting_text()
 		action_box.add_child(waiting)
@@ -1491,14 +1536,20 @@ func _apply_battle_event(value: Dictionary) -> void:
 	match event_type:
 		"field_state":
 			input_locked = true
+			initial_send_out_started = false
+			initial_send_out_finished = false
 			_reset_battle_sprite_visuals()
 			_append_log("A battle started.")
 			_animate_battle_intro()
 			call_deferred("_animate_initial_send_out")
 		"queued_event":
-			input_locked = not bool(value.get("event", {}).get("prompt", false))
-			if not input_locked:
+			if initial_send_out_started and not initial_send_out_finished:
+				input_locked = true
+			elif bool(value.get("event", {}).get("prompt", false)):
+				input_locked = false
 				_append_log("Choose your next action.")
+			else:
+				input_locked = true
 		"move_event":
 			input_locked = true
 			var event_value: Variant = value.get("event", {})
@@ -1512,6 +1563,7 @@ func _apply_battle_event(value: Dictionary) -> void:
 		"switch_in":
 			input_locked = true
 			initial_send_out_started = true
+			initial_send_out_finished = true
 			_reset_battle_sprite_visuals()
 			var switch_value: Variant = value.get("event", {})
 			switch_event = switch_value as Dictionary if switch_value is Dictionary else {}
@@ -1520,6 +1572,9 @@ func _apply_battle_event(value: Dictionary) -> void:
 			selection_mode = ""
 			_append_log("Battle complete.")
 		"start_scene":
+			input_locked = true
+			initial_send_out_started = false
+			initial_send_out_finished = false
 			_reset_battle_sprite_visuals()
 			_animate_battle_intro()
 			call_deferred("_animate_initial_send_out")
