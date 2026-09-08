@@ -613,12 +613,16 @@ func render_song_frames(prepared: Dictionary, start_frame: int, frame_count: int
 func _render_event(mix: PackedFloat32Array, frame_count: int, data: PackedByteArray, event: Dictionary, base_frame: int = 0) -> void:
 	var start_frame: int = maxi(int(floor(float(event.get("start", 0.0)) * SAMPLE_RATE)), 0)
 	var event_frames: int = maxi(int(ceil(float(event.get("duration", 0.0)) * SAMPLE_RATE)), 1)
-	var end_frame: int = start_frame + event_frames
+	var tone: Dictionary = _resolve_tone(data, event.get("tone", {}) as Dictionary, int(event.get("key", 60)))
+	var pcm_envelope: PackedFloat32Array = PackedFloat32Array()
+	if (int(tone.get("type", -1)) & 0x0F) in [0, 8]:
+		pcm_envelope = _pcm_envelope(tone, event_frames)
+	var rendered_frames: int = maxi(event_frames, ceili(float(pcm_envelope.size()) * SAMPLE_RATE / M4A_VBLANK_RATE))
+	var end_frame: int = start_frame + rendered_frames
 	var mix_start: int = maxi(start_frame, base_frame)
 	var mix_end: int = mini(base_frame + frame_count, end_frame)
 	if mix_start >= mix_end:
 		return
-	var tone: Dictionary = _resolve_tone(data, event.get("tone", {}) as Dictionary, int(event.get("key", 60)))
 	if tone.is_empty():
 		return
 	var type: int = int(tone.get("type", -1))
@@ -649,7 +653,7 @@ func _render_event(mix: PackedFloat32Array, frame_count: int, data: PackedByteAr
 		var sample: float = _voice_sample(data, tone, type, phase, wave, noise_state)
 		if (type & 0x0F) == 4 or (type & 0x0F) == 12:
 			noise_state = int(_voice_sample_state)
-		var envelope: float = _envelope(float(local_frame) / float(maxi(event_frames, 1)), tone)
+		var envelope: float = pcm_envelope[mini(floori(float(local_frame) * M4A_VBLANK_RATE / SAMPLE_RATE), pcm_envelope.size() - 1)] if not pcm_envelope.is_empty() else _envelope(float(local_frame) / float(maxi(event_frames, 1)), tone)
 		var mix_frame: int = frame - base_frame
 		mix[mix_frame * 2] += sample * envelope * left_gain
 		mix[mix_frame * 2 + 1] += sample * envelope * right_gain
@@ -750,6 +754,33 @@ func _midi_key_to_freq(wave: Dictionary, key: int, fine_adjust: int) -> int:
 	var value_two: int = MIDI_FREQ_TABLE[next_scale & 0x0F] >> (next_scale >> 4)
 	var interpolated: int = value_one + ((value_two - value_one) * adjusted_fine >> 8)
 	return int((int(wave.get("frequency_fixed", 0)) * interpolated) >> 32)
+
+var pcm_envelope_cache: Dictionary = {}
+
+func _pcm_envelope(tone: Dictionary, gate_frames: int) -> PackedFloat32Array:
+	var attack: int = clampi(int(tone.get("attack", 0)), 0, 255)
+	var decay: int = clampi(int(tone.get("decay", 0)), 0, 255)
+	var sustain: int = clampi(int(tone.get("sustain", 0)), 0, 255)
+	var release: int = clampi(int(tone.get("release", 0)), 0, 255)
+	var gate_ticks: int = maxi(1, ceili(float(gate_frames) * M4A_VBLANK_RATE / SAMPLE_RATE))
+	var key: String = "%d:%d:%d:%d:%d" % [attack, decay, sustain, release, gate_ticks]
+	if pcm_envelope_cache.has(key):
+		return pcm_envelope_cache[key]
+	var levels: PackedFloat32Array = PackedFloat32Array()
+	var level: int = 0
+	var attacking: bool = true
+	for tick in range(gate_ticks):
+		if attacking:
+			level = mini(255, level + attack)
+			attacking = level < 255
+		else:
+			level = maxi(sustain, (level * decay) >> 8)
+		levels.append(float(level) / 255.0)
+	while level > 0:
+		level = (level * release) >> 8
+		levels.append(float(level) / 255.0)
+	pcm_envelope_cache[key] = levels
+	return levels
 
 func _envelope(progress: float, tone: Dictionary) -> float:
 	var attack: float = float(int(tone.get("attack", 0)))
