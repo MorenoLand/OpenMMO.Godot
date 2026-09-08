@@ -21,6 +21,9 @@ saves/
 captures/
 generated/
 assets-extracted/
+assets/
+tests/
+/SESSION[0-9]*/
 user://
 .DS_Store
 Thumbs.db

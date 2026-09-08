@@ -329,6 +329,8 @@ func _find_fire_red_object_graphics_table(entry_count: int) -> int:
 	var required_entries: int = mini(entry_count, 16)
 	if required_entries < 8 or rom_data.size() < required_entries * 4:
 		return -1
+	var best_offset: int = -1
+	var best_score: int = 0
 	for candidate in range(0, rom_data.size() - required_entries * 4, 4):
 		if _read_rom_pointer(candidate) < 0:
 			continue
@@ -336,9 +338,16 @@ func _find_fire_red_object_graphics_table(entry_count: int) -> int:
 		for entry in range(required_entries):
 			if _object_graphics_info_is_valid(_read_rom_pointer(candidate + entry * 4)):
 				valid_entries += 1
-		if valid_entries == required_entries:
-			return candidate
-	return -1
+		if valid_entries != required_entries:
+			continue
+		var score: int = valid_entries
+		for entry in range(required_entries, entry_count):
+			if _object_graphics_info_is_valid(_read_rom_pointer(candidate + entry * 4)):
+				score += 1
+		if score > best_score:
+			best_score = score
+			best_offset = candidate
+	return best_offset if best_score >= required_entries else -1
 
 func _find_fire_red_object_palette_table(table_offset: int, entry_count: int) -> int:
 	var palette_tags: Dictionary = {}
@@ -369,8 +378,6 @@ func _find_fire_red_object_palette_table(table_offset: int, entry_count: int) ->
 		if score > best_score:
 			best_score = score
 			best_offset = candidate
-		if score >= mini(8, palette_tags.size()):
-			return candidate
 	return best_offset if best_score >= 4 else -1
 
 func _populate_fire_red_object_sprites(object_sprites: Dictionary) -> void:

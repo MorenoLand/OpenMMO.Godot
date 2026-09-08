@@ -2,6 +2,23 @@ extends Control
 
 signal exit_requested
 
+const OPENMMO_BATTLE_HUD: Texture2D = preload("res://assets/openmmo/default/res/battle-hud.png")
+const OPENMMO_BATTLE_FONT = preload("res://assets/openmmo/default/res/fonts/battle.ttf")
+const BATTLE_HUD_AREAS: Dictionary = {
+	"health-progressbar.background": Rect2i(35, 8, 13, 6),
+	"health-progressbar.progressImage": Rect2i(20, 9, 1, 4),
+	"health-progressbar-orange.progressImage": Rect2i(22, 9, 1, 4),
+	"health-progressbar-green.progressImage": Rect2i(21, 9, 1, 4),
+	"xp-progressbar.background": Rect2i(15, 18, 18, 8),
+	"xp-progressbar.progressImage": Rect2i(27, 21, 1, 2),
+	"battle-ui-enemy": Rect2i(0, 43, 306, 20),
+	"battle-ui-self": Rect2i(0, 71, 298, 33),
+	"battle-button.default": Rect2i(321, 145, 96, 30),
+	"battle-button.hover": Rect2i(321, 176, 96, 30),
+	"battle-button.disabled": Rect2i(321, 207, 96, 30),
+	"battle-area": Rect2i(6, 312, 800, 115)
+}
+
 var log_view: RichTextLabel
 var state_label: Label
 var action_box: VBoxContainer
@@ -23,6 +40,10 @@ var opponent_sprite: TextureRect
 var player_sprite: TextureRect
 var effects_layer: Control
 var party_status_box: HBoxContainer
+var battle_viewport: SubViewport
+var battle_field_root: Node3D
+var battle_intro_tween: Tween
+var action_panel: PanelContainer
 var hp_tweens: Dictionary = {}
 var move_hp_tweens: Array[Tween] = []
 var move_tween: Tween
@@ -39,6 +60,7 @@ var selection_index: int = 0
 var selection_grid_columns: int = 2
 var selection_buttons: Array[Button] = []
 var input_locked: bool = true
+var initial_send_out_started: bool = false
 
 func _ready() -> void:
 	set_process_input(true)
@@ -47,7 +69,8 @@ func _ready() -> void:
 	_build_ui()
 	state = GameState.battle_state.duplicate(true)
 	_render_state()
-	_trigger_flash()
+	_animate_battle_intro()
+	call_deferred("_animate_initial_send_out")
 
 func _exit_tree() -> void:
 	if GameState.battle_event_received.is_connected(_on_battle_event):
@@ -78,14 +101,7 @@ func _build_ui() -> void:
 	field.add_theme_stylebox_override("panel", _panel_style(Color("071015"), Color("071015"), 0, 0))
 	stage.add_child(field)
 	stage_root = field
-	var backdrop := TextureRect.new()
-	backdrop.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	backdrop.texture = _make_battle_backdrop()
-	backdrop.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	backdrop.stretch_mode = TextureRect.STRETCH_SCALE
-	backdrop.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
-	backdrop.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	stage_root.add_child(backdrop)
+	stage_root.add_child(_make_battle_viewport())
 	var field_shade := ColorRect.new()
 	field_shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	field_shade.color = Color(0.02, 0.035, 0.025, 0.06)
@@ -99,13 +115,15 @@ func _build_ui() -> void:
 	opponent_card.anchor_left = 0.03
 	opponent_card.anchor_top = 0.07
 	opponent_card.anchor_right = 0.41
-	opponent_card.anchor_bottom = 0.26
+	opponent_card.anchor_bottom = 0.07
+	opponent_card.offset_bottom = 20.0
 	stage_root.add_child(opponent_card)
 	var player_card := _make_mon_card(false)
 	player_card.anchor_left = 0.56
 	player_card.anchor_top = 0.55
 	player_card.anchor_right = 0.97
-	player_card.anchor_bottom = 0.78
+	player_card.anchor_bottom = 0.55
+	player_card.offset_bottom = 33.0
 	stage_root.add_child(player_card)
 	party_status_box = HBoxContainer.new()
 	party_status_box.anchor_left = 0.78
@@ -146,26 +164,30 @@ func _build_ui() -> void:
 	stage_root.add_child(effects_layer)
 	var log_panel := PanelContainer.new()
 	log_panel.anchor_left = 0.0
-	log_panel.anchor_top = 0.70
+	log_panel.anchor_top = 0.80
 	log_panel.anchor_right = 1.0
 	log_panel.anchor_bottom = 1.0
 	log_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	log_panel.z_index = 2
-	log_panel.add_theme_stylebox_override("panel", _panel_style(Color(0.035, 0.055, 0.04, 0.78), Color(0.0, 0.0, 0.0, 0.0), 0, 0))
+	var message_style := _hud_style("battle-area", 17, 17, 7, 7)
+	message_style.modulate_color = Color(1.0, 1.0, 1.0, 0.76)
+	log_panel.add_theme_stylebox_override("panel", message_style)
 	stage_root.add_child(log_panel)
 	log_view = RichTextLabel.new()
 	log_view.bbcode_enabled = false
 	log_view.fit_content = false
 	log_view.scroll_active = true
 	log_view.scroll_following = true
-	log_view.custom_minimum_size = Vector2(0.0, 88.0)
-	log_view.add_theme_font_size_override("normal_font_size", 16)
+	log_view.custom_minimum_size = Vector2(0.0, 56.0)
+	log_view.add_theme_font_override("normal_font", OPENMMO_BATTLE_FONT)
+	log_view.add_theme_font_size_override("normal_font_size", 20)
+	log_view.add_theme_color_override("default_color", Color.WHITE)
 	log_panel.add_child(log_view)
 	log_view.scroll_following = true
-	var action_panel := PanelContainer.new()
-	action_panel.anchor_left = 0.55
-	action_panel.anchor_top = 0.70
-	action_panel.anchor_right = 0.99
+	action_panel = PanelContainer.new()
+	action_panel.anchor_left = 0.03
+	action_panel.anchor_top = 0.80
+	action_panel.anchor_right = 0.47
 	action_panel.anchor_bottom = 0.985
 	action_panel.z_index = 3
 	action_panel.add_theme_stylebox_override("panel", _panel_style(Color(0.0, 0.0, 0.0, 0.0), Color(0.0, 0.0, 0.0, 0.0), 0, 0))
@@ -189,6 +211,102 @@ func _build_ui() -> void:
 	flash_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	flash_overlay.z_index = 20
 	add_child(flash_overlay)
+
+func _make_battle_viewport() -> SubViewportContainer:
+	var container := SubViewportContainer.new()
+	container.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	container.stretch = true
+	container.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var viewport := SubViewport.new()
+	viewport.size = Vector2i(800, 450)
+	viewport.transparent_bg = false
+	viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	viewport.canvas_item_default_texture_filter = Viewport.DEFAULT_CANVAS_ITEM_TEXTURE_FILTER_NEAREST
+	container.add_child(viewport)
+	battle_viewport = viewport
+	battle_field_root = Node3D.new()
+	viewport.add_child(battle_field_root)
+	var environment := WorldEnvironment.new()
+	var world_environment := Environment.new()
+	world_environment.background_mode = Environment.BG_COLOR
+	world_environment.background_color = Color("2f8eaf")
+	world_environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	world_environment.ambient_light_color = Color("b9d6d2")
+	world_environment.ambient_light_energy = 0.85
+	environment.environment = world_environment
+	battle_field_root.add_child(environment)
+	var light := DirectionalLight3D.new()
+	light.light_color = Color("fff4df")
+	light.light_energy = 1.15
+	light.rotation_degrees = Vector3(-58.0, -28.0, 0.0)
+	battle_field_root.add_child(light)
+	var camera := Camera3D.new()
+	camera.projection = Camera3D.PROJECTION_PERSPECTIVE
+	camera.fov = 30.0
+	camera.near = 0.05
+	camera.far = 100.0
+	camera.look_at_from_position(Vector3(3.8, 3.2, 3.4), Vector3(0.0, 0.25, 0.0), Vector3.UP)
+	camera.current = true
+	battle_field_root.add_child(camera)
+	_add_battle_model("res://assets/openmmo/default/platforms/base.obj", Vector3(1.15, -0.05, -0.85), Vector3(0.82, 0.82, 0.82))
+	_add_battle_model("res://assets/openmmo/default/platforms/base.obj", Vector3(-1.05, -0.05, 1.0), Vector3(1.25, 1.25, 1.25))
+	return container
+
+func _add_battle_model(path: String, position: Vector3, scale: Vector3) -> void:
+	if battle_field_root == null:
+		return
+	var resource: Resource = load(path) as Resource
+	var model: Node3D
+	if resource is PackedScene:
+		model = (resource as PackedScene).instantiate() as Node3D
+	elif resource is ArrayMesh:
+		var mesh_instance := MeshInstance3D.new()
+		mesh_instance.mesh = resource as ArrayMesh
+		model = mesh_instance
+	else:
+		return
+	if model == null:
+		return
+	model.position = position
+	model.scale = scale
+	battle_field_root.add_child(model)
+
+func _animate_battle_intro() -> void:
+	if stage_root == null:
+		return
+	if battle_intro_tween != null:
+		battle_intro_tween.kill()
+	stage_root.pivot_offset = stage_root.size * 0.5
+	stage_root.modulate = Color(1.0, 1.0, 1.0, 0.0)
+	stage_root.scale = Vector2(1.06, 1.06)
+	battle_intro_tween = create_tween()
+	battle_intro_tween.set_parallel(true)
+	battle_intro_tween.tween_property(stage_root, "modulate", Color.WHITE, 0.5).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	battle_intro_tween.tween_property(stage_root, "scale", Vector2.ONE, 0.5).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+
+func _animate_initial_send_out() -> void:
+	if initial_send_out_started or state.is_empty():
+		return
+	var opponent_party: Array = state.get("opponent_party", []) if state.get("opponent_party", []) is Array else []
+	var player_party: Array = state.get("player_party", []) if state.get("player_party", []) is Array else []
+	var opponent: Dictionary = _active_mon(opponent_party, int(state.get("opponent_active_slot", -1)))
+	var player: Dictionary = _active_mon(player_party, int(state.get("active_slot", -1)))
+	if opponent.is_empty() and player.is_empty():
+		return
+	initial_send_out_started = true
+	if not opponent.is_empty() and opponent_sprite != null:
+		opponent_sprite.visible = false
+	if not player.is_empty() and player_sprite != null:
+		player_sprite.visible = false
+	if not opponent.is_empty():
+		_append_log("A wild %s appeared!" % _battle_mon_name(opponent, true) if not bool(state.get("trainer", false)) else "%s wants to battle!" % str(state.get("opponent_name", "The opposing trainer")))
+	var sequence := create_tween()
+	sequence.tween_interval(0.45)
+	if not opponent.is_empty():
+		sequence.tween_callback(_animate_send_out.bind({"side": 1, "battle_event": false}))
+	if not player.is_empty():
+		sequence.tween_interval(0.85)
+		sequence.tween_callback(_animate_send_out.bind({"side": 0, "battle_event": false}))
 
 func _make_battle_backdrop() -> Texture2D:
 	var width: int = 320
@@ -229,35 +347,56 @@ func _paint_ellipse(image: Image, center: Vector2i, radii: Vector2i, color: Colo
 
 func _make_mon_card(opponent: bool) -> PanelContainer:
 	var card := PanelContainer.new()
-	card.add_theme_stylebox_override("panel", _panel_style(Color(0.92, 0.94, 0.89, 0.94), Color("34454b"), 5, 2))
-	var margin := MarginContainer.new()
-	margin.add_theme_constant_override("margin_left", 10)
-	margin.add_theme_constant_override("margin_top", 7)
-	margin.add_theme_constant_override("margin_right", 10)
-	margin.add_theme_constant_override("margin_bottom", 7)
-	card.add_child(margin)
-	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 3)
-	margin.add_child(box)
+	card.custom_minimum_size = Vector2(306.0, 20.0) if opponent else Vector2(298.0, 33.0)
+	card.add_theme_stylebox_override("panel", _hud_style("battle-ui-enemy" if opponent else "battle-ui-self", 0, 0, 0, 0))
+	var content := Control.new()
+	content.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	content.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.add_child(content)
 	var name_label := Label.new()
-	name_label.add_theme_font_size_override("font_size", 16)
-	name_label.add_theme_color_override("font_color", Color("26363b"))
-	box.add_child(name_label)
+	name_label.anchor_left = 0.06
+	name_label.anchor_top = 0.03
+	name_label.anchor_right = 0.62
+	name_label.anchor_bottom = 0.48
+	name_label.add_theme_font_size_override("font_size", 12)
+	name_label.add_theme_color_override("font_color", Color.WHITE)
+	name_label.add_theme_color_override("font_outline_color", Color("434343"))
+	name_label.add_theme_constant_override("outline_size", 1)
+	content.add_child(name_label)
 	var level_label := Label.new()
-	level_label.add_theme_font_size_override("font_size", 12)
-	level_label.add_theme_color_override("font_color", Color("4c5d61"))
-	box.add_child(level_label)
+	level_label.anchor_left = 0.63
+	level_label.anchor_top = 0.03
+	level_label.anchor_right = 0.94
+	level_label.anchor_bottom = 0.48
+	level_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	level_label.add_theme_font_size_override("font_size", 11)
+	level_label.add_theme_color_override("font_color", Color.WHITE)
+	level_label.add_theme_color_override("font_outline_color", Color("434343"))
+	level_label.add_theme_constant_override("outline_size", 1)
+	content.add_child(level_label)
 	var hp_bar := ProgressBar.new()
 	hp_bar.show_percentage = false
-	hp_bar.custom_minimum_size = Vector2(0.0, 12.0)
-	hp_bar.add_theme_stylebox_override("background", _panel_style(Color("c2c9c1"), Color("57656a"), 4, 1))
-	hp_bar.add_theme_stylebox_override("fill", _panel_style(Color("5ccf77") if not opponent else Color("e6bd5a"), Color("5ccf77") if not opponent else Color("e6bd5a"), 5, 0))
-	box.add_child(hp_bar)
+	hp_bar.anchor_left = 0.12
+	hp_bar.anchor_top = 0.52 if opponent else 0.44
+	hp_bar.anchor_right = 0.92
+	hp_bar.anchor_bottom = hp_bar.anchor_top
+	hp_bar.offset_top = -3.0
+	hp_bar.offset_bottom = 3.0
+	hp_bar.add_theme_stylebox_override("background", _hud_style("health-progressbar.background", 2, 2, 1, 1))
+	hp_bar.add_theme_stylebox_override("fill", _hud_style("health-progressbar-green.progressImage", 1, 1, 1, 1))
+	content.add_child(hp_bar)
 	var hp_label := Label.new()
-	hp_label.add_theme_font_size_override("font_size", 11)
-	hp_label.add_theme_color_override("font_color", Color("26363b"))
+	hp_label.anchor_left = 0.64
+	hp_label.anchor_top = 0.63
+	hp_label.anchor_right = 0.94
+	hp_label.anchor_bottom = 0.94
+	hp_label.add_theme_font_size_override("font_size", 10)
+	hp_label.add_theme_color_override("font_color", Color.WHITE)
+	hp_label.add_theme_color_override("font_outline_color", Color("434343"))
+	hp_label.add_theme_constant_override("outline_size", 1)
 	hp_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	box.add_child(hp_label)
+	hp_label.visible = not opponent
+	content.add_child(hp_label)
 	if opponent:
 		opponent_name_label = name_label
 		opponent_level_label = level_label
@@ -266,17 +405,41 @@ func _make_mon_card(opponent: bool) -> PanelContainer:
 	else:
 		var xp_bar := ProgressBar.new()
 		xp_bar.show_percentage = false
-		xp_bar.custom_minimum_size = Vector2(0.0, 8.0)
+		xp_bar.anchor_left = 0.15
+		xp_bar.anchor_top = 0.88
+		xp_bar.anchor_right = 0.90
+		xp_bar.anchor_bottom = xp_bar.anchor_top
+		xp_bar.offset_top = -1.0
+		xp_bar.offset_bottom = 1.0
 		xp_bar.max_value = 1.0
-		xp_bar.add_theme_stylebox_override("background", _panel_style(Color("c2c9c1"), Color("57656a"), 4, 1))
-		xp_bar.add_theme_stylebox_override("fill", _panel_style(Color("3d8be0"), Color("3d8be0"), 4, 0))
-		box.add_child(xp_bar)
+		xp_bar.add_theme_stylebox_override("background", _hud_style("xp-progressbar.background", 5, 5, 1, 1))
+		xp_bar.add_theme_stylebox_override("fill", _hud_style("xp-progressbar.progressImage", 0, 0, 0, 0))
+		content.add_child(xp_bar)
 		player_name_label = name_label
 		player_level_label = level_label
 		player_hp_bar = hp_bar
 		player_hp_label = hp_label
 		player_xp_bar = xp_bar
 	return card
+
+func _hud_region(name: String) -> AtlasTexture:
+	var atlas := AtlasTexture.new()
+	atlas.atlas = OPENMMO_BATTLE_HUD
+	atlas.region = Rect2(BATTLE_HUD_AREAS.get(name, Rect2i()))
+	return atlas
+
+func _hud_style(name: String, left: int, right: int, top: int, bottom: int) -> StyleBoxTexture:
+	var style := StyleBoxTexture.new()
+	style.texture = _hud_region(name)
+	style.texture_margin_left = left
+	style.texture_margin_right = right
+	style.texture_margin_top = top
+	style.texture_margin_bottom = bottom
+	style.content_margin_left = 0.0
+	style.content_margin_right = 0.0
+	style.content_margin_top = 0.0
+	style.content_margin_bottom = 0.0
+	return style
 
 func _make_sprite() -> TextureRect:
 	var sprite := TextureRect.new()
@@ -303,13 +466,17 @@ func _make_button(label: String) -> Button:
 	button.text = label
 	button.focus_mode = Control.FOCUS_ALL
 	button.add_theme_font_size_override("font_size", 13)
-	button.add_theme_color_override("font_color", Color("f2f4ed"))
-	button.add_theme_color_override("font_hover_color", Color("ffffff"))
-	button.add_theme_color_override("font_pressed_color", Color("ffffff"))
-	button.add_theme_stylebox_override("normal", _panel_style(Color(0.12, 0.16, 0.18, 0.92), Color("73848a"), 3, 1))
-	button.add_theme_stylebox_override("hover", _panel_style(Color(0.20, 0.26, 0.27, 0.96), Color("d3c25b"), 3, 2))
-	button.add_theme_stylebox_override("focus", _panel_style(Color(0.20, 0.26, 0.27, 0.96), Color("d3c25b"), 3, 2))
-	button.add_theme_stylebox_override("pressed", _panel_style(Color(0.27, 0.32, 0.31, 0.98), Color("eee1a0"), 3, 2))
+	button.add_theme_color_override("font_color", Color.WHITE)
+	button.add_theme_color_override("font_hover_color", Color.WHITE)
+	button.add_theme_color_override("font_pressed_color", Color.WHITE)
+	button.add_theme_color_override("font_disabled_color", Color("a9a9a9"))
+	button.add_theme_color_override("font_outline_color", Color("434343"))
+	button.add_theme_constant_override("outline_size", 1)
+	button.add_theme_stylebox_override("normal", _hud_style("battle-button.default", 10, 10, 8, 8))
+	button.add_theme_stylebox_override("hover", _hud_style("battle-button.hover", 10, 10, 8, 8))
+	button.add_theme_stylebox_override("focus", _hud_style("battle-button.hover", 10, 10, 8, 8))
+	button.add_theme_stylebox_override("pressed", _hud_style("battle-button.hover", 10, 10, 8, 8))
+	button.add_theme_stylebox_override("disabled", _hud_style("battle-button.disabled", 10, 10, 8, 8))
 	return button
 
 func _return_to_world() -> void:
@@ -462,15 +629,14 @@ func _active_mon(party: Array, active_slot: int) -> Dictionary:
 
 func _update_mon_card(name_label: Label, level_label: Label, hp_bar: ProgressBar, hp_label: Label, mon: Dictionary, tween_key: String, xp_bar: ProgressBar = null) -> void:
 	var level: int = int(mon.get("level", 0))
-	level_label.text = "Lv %d" % level if level > 0 else ""
+	level_label.text = "Lv. %d" % level if level > 0 else ""
 	var current_hp: int = int(mon.get("current_hp", mon.get("hp", 0)))
 	var max_hp: int = int(mon.get("max_hp", mon.get("hp_max", 0)))
 	if max_hp <= 0:
 		max_hp = maxi(current_hp, 1)
 	hp_bar.max_value = max_hp
 	var target_hp: float = clampf(float(current_hp), 0.0, float(max_hp))
-	var fill_color: Color = Color("d94c5a") if target_hp * 5.0 <= max_hp else Color("e6bd5a") if target_hp * 2.0 <= max_hp else Color("5ccf77")
-	hp_bar.add_theme_stylebox_override("fill", _panel_style(fill_color, fill_color, 5, 0))
+	_set_health_bar_style(hp_bar, target_hp, max_hp)
 	if not bool(hp_bar.get_meta("initialized", false)):
 		hp_bar.value = target_hp
 		hp_bar.set_meta("initialized", true)
@@ -521,7 +687,13 @@ func _update_mon_card(name_label: Label, level_label: Label, hp_bar: ProgressBar
 func _set_hp_display(value: float, hp_bar: ProgressBar, hp_label: Label, max_hp: int) -> void:
 	var shown_hp: int = clampi(roundi(value), 0, max_hp)
 	hp_bar.value = value
-	hp_label.text = "%d / %d HP" % [shown_hp, max_hp]
+	hp_label.text = "%d / %d" % [shown_hp, max_hp]
+
+func _set_health_bar_style(hp_bar: ProgressBar, current_hp: float, max_hp: int) -> void:
+	var ratio: float = current_hp / float(maxi(max_hp, 1))
+	var fill_area: String = "health-progressbar-green.progressImage" if ratio >= 0.5 else "health-progressbar-orange.progressImage" if ratio >= 0.25 else "health-progressbar.progressImage"
+	hp_bar.add_theme_stylebox_override("background", _hud_style("health-progressbar.background", 2, 2, 1, 1))
+	hp_bar.add_theme_stylebox_override("fill", _hud_style(fill_area, 1, 1, 1, 1))
 
 func _on_move_hp_tween_finished(tween: Tween) -> void:
 	move_hp_tweens.erase(tween)
@@ -604,6 +776,8 @@ func _battle_mon_name(mon: Dictionary, opponent: bool) -> String:
 func _render_actions() -> void:
 	if action_box == null:
 		return
+	if action_panel != null:
+		action_panel.visible = not bool(state.get("battle_complete", false)) and not input_locked and (bool(state.get("can_act", false)) or bool(state.get("force_switch", false)))
 	selection_buttons.clear()
 	selection_index = 0
 	for child in action_box.get_children():
@@ -630,8 +804,7 @@ func _render_actions() -> void:
 		var buttons := GridContainer.new()
 		buttons.columns = 2
 		for entry in [["FIGHT", "Select your attack move.", "fight"], ["BAG", "Use an item.", "bag"], ["POKéMON", "Switch current Pokémon.", "pokemon"], ["RUN", "Escape from battle.", "run"]]:
-			var button := _make_button("%s\n%s" % [str(entry[0]), str(entry[1])])
-			button.custom_minimum_size = Vector2(178, 48)
+			var button := _make_action_button(str(entry[0]), str(entry[1]))
 			if str(entry[2]) == "fight":
 				button.pressed.connect(_choose_fight)
 			elif str(entry[2]) == "bag":
@@ -644,6 +817,33 @@ func _render_actions() -> void:
 			buttons.add_child(button)
 		action_box.add_child(buttons)
 		_focus_selection()
+
+func _make_action_button(title: String, description: String) -> Button:
+	var button := _make_button("")
+	button.custom_minimum_size = Vector2(178, 48)
+	var content := Control.new()
+	content.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	content.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var title_label := Label.new()
+	title_label.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
+	title_label.offset_top = 5.0
+	title_label.offset_bottom = 22.0
+	title_label.text = title
+	title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title_label.add_theme_font_size_override("font_size", 12)
+	title_label.add_theme_color_override("font_color", Color.WHITE)
+	content.add_child(title_label)
+	var description_label := Label.new()
+	description_label.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
+	description_label.offset_top = -21.0
+	description_label.offset_bottom = -4.0
+	description_label.text = description
+	description_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	description_label.add_theme_font_size_override("font_size", 9)
+	description_label.add_theme_color_override("font_color", Color.WHITE)
+	content.add_child(description_label)
+	button.add_child(content)
+	return button
 
 func _choose_fight() -> void:
 	selection_mode = "fight"
@@ -850,7 +1050,7 @@ func _send_battle_action(action: int, value: int, label: String, target_entity_i
 func _append_log(message: String) -> void:
 	if log_view == null:
 		return
-	log_view.append_text(message + "\n")
+	log_view.text = message
 	log_view.scroll_following = true
 	call_deferred("_scroll_log_to_bottom")
 
@@ -1157,9 +1357,11 @@ func _reset_battle_sprite_visuals() -> void:
 
 func _animate_send_out(event: Dictionary) -> void:
 	var side: int = int(event.get("side", 0))
+	var battle_event: bool = bool(event.get("battle_event", true))
 	var sprite: TextureRect = player_sprite if side == 0 else opponent_sprite
 	if sprite == null or sprite.texture == null or effects_layer == null:
-		_finish_move_event.call_deferred()
+		if battle_event:
+			_finish_move_event.call_deferred()
 		return
 	var ball_result: Dictionary = GameState.content.battle_pokeball_frames(0) if GameState.content != null else {}
 	var frames: Array = ball_result.get("frames", []) if bool(ball_result.get("ok", false)) else []
@@ -1182,7 +1384,7 @@ func _animate_send_out(event: Dictionary) -> void:
 	tween.tween_method(_set_ball_arc.bind(ball, start, target, frames, side), 0.0, 1.0, 0.42).set_trans(Tween.TRANS_LINEAR)
 	tween.tween_callback(_release_battler.bind(sprite, ball, target, frames))
 	tween.tween_interval(0.38)
-	tween.tween_callback(_finish_send_out.bind(sprite, ball, tween))
+	tween.tween_callback(_finish_send_out.bind(sprite, ball, tween, battle_event))
 
 func _set_ball_arc(value: float, ball: TextureRect, start: Vector2, target: Vector2, frames: Array, side: int) -> void:
 	if ball == null or not is_instance_valid(ball):
@@ -1222,7 +1424,7 @@ func _release_battler(sprite: TextureRect, ball: TextureRect, target: Vector2, f
 	emerge.tween_property(sprite, "scale", Vector2.ONE, 0.30).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	emerge.parallel().tween_property(sprite, "modulate", Color.WHITE, 0.24)
 
-func _finish_send_out(sprite: TextureRect, ball: TextureRect, tween: Tween) -> void:
+func _finish_send_out(sprite: TextureRect, ball: TextureRect, tween: Tween, battle_event: bool = true) -> void:
 	if sprite != null and is_instance_valid(sprite):
 		sprite.visible = true
 		sprite.scale = Vector2.ONE
@@ -1230,7 +1432,8 @@ func _finish_send_out(sprite: TextureRect, ball: TextureRect, tween: Tween) -> v
 	if ball != null and is_instance_valid(ball):
 		ball.queue_free()
 	send_out_tweens.erase(tween)
-	_finish_move_event()
+	if battle_event:
+		_finish_move_event()
 
 func _release_glow() -> Texture2D:
 	if release_glow_texture != null:
@@ -1290,7 +1493,8 @@ func _apply_battle_event(value: Dictionary) -> void:
 			input_locked = true
 			_reset_battle_sprite_visuals()
 			_append_log("A battle started.")
-			_trigger_flash()
+			_animate_battle_intro()
+			call_deferred("_animate_initial_send_out")
 		"queued_event":
 			input_locked = not bool(value.get("event", {}).get("prompt", false))
 			if not input_locked:
@@ -1307,6 +1511,7 @@ func _apply_battle_event(value: Dictionary) -> void:
 			_trigger_flash(Color(1.0, 0.86, 0.58, 0.32))
 		"switch_in":
 			input_locked = true
+			initial_send_out_started = true
 			_reset_battle_sprite_visuals()
 			var switch_value: Variant = value.get("event", {})
 			switch_event = switch_value as Dictionary if switch_value is Dictionary else {}
@@ -1316,8 +1521,12 @@ func _apply_battle_event(value: Dictionary) -> void:
 			_append_log("Battle complete.")
 		"start_scene":
 			_reset_battle_sprite_visuals()
-			_append_log("Battle scene initialized.")
-			_trigger_flash(Color(1.0, 1.0, 1.0, 0.72))
+			_animate_battle_intro()
+			call_deferred("_animate_initial_send_out")
+		"slot_event":
+			_apply_slot_event(value.get("event", {}))
+		"slot_flag", "entity_delta", "move_pp", "presence", "side", "list_event", "stat_counters":
+			pass
 	if move_event.is_empty():
 		_render_state()
 	hp_tween_delay = 0.0
@@ -1327,3 +1536,8 @@ func _apply_battle_event(value: Dictionary) -> void:
 		_animate_send_out(switch_event)
 	elif battle_event_busy:
 		_finish_move_event.call_deferred()
+
+func _apply_slot_event(event_value: Variant) -> void:
+	if not event_value is Dictionary:
+		return
+	state["slot_event"] = (event_value as Dictionary).duplicate(true)
