@@ -4,7 +4,7 @@ signal exit_requested
 
 const OPENMMO_BATTLE_HUD: Texture2D = preload("res://assets/openmmo/default/res/battle-hud.png")
 const OPENMMO_BATTLE_FONT = preload("res://assets/openmmo/default/res/fonts/battle.ttf")
-const OPENMMO_PLAINS_TEXTURE: Texture2D = preload("res://assets/openmmo/default/platforms/u_plains.png")
+const OPENMMO_SHADOW_BIG: Texture2D = preload("res://assets/openmmo/default/shadow_big/shadow_big.png")
 const BATTLE_HUD_AREAS: Dictionary = {
 	"health-progressbar.background": Rect2i(35, 8, 13, 6),
 	"health-progressbar.progressImage": Rect2i(20, 9, 1, 4),
@@ -39,6 +39,8 @@ var player_hp_label: Label
 var player_xp_bar: ProgressBar
 var opponent_sprite: TextureRect
 var player_sprite: TextureRect
+var opponent_platform: TextureRect
+var player_platform: TextureRect
 var effects_layer: Control
 var party_status_box: HBoxContainer
 var battle_viewport: SubViewport
@@ -109,6 +111,26 @@ func _build_ui() -> void:
 	field_shade.color = Color(0.02, 0.035, 0.025, 0.06)
 	field_shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	stage_root.add_child(field_shade)
+	opponent_platform = _make_platform(Vector2(300.0, 225.0))
+	opponent_platform.anchor_left = 0.76
+	opponent_platform.anchor_top = 0.48
+	opponent_platform.anchor_right = opponent_platform.anchor_left
+	opponent_platform.anchor_bottom = opponent_platform.anchor_top
+	opponent_platform.offset_left = -150.0
+	opponent_platform.offset_top = -112.5
+	opponent_platform.offset_right = 150.0
+	opponent_platform.offset_bottom = 112.5
+	stage_root.add_child(opponent_platform)
+	player_platform = _make_platform(Vector2(380.0, 285.0))
+	player_platform.anchor_left = 0.30
+	player_platform.anchor_top = 0.82
+	player_platform.anchor_right = player_platform.anchor_left
+	player_platform.anchor_bottom = player_platform.anchor_top
+	player_platform.offset_left = -190.0
+	player_platform.offset_top = -142.5
+	player_platform.offset_right = 190.0
+	player_platform.offset_bottom = 142.5
+	stage_root.add_child(player_platform)
 	state_label = Label.new()
 	state_label.visible = false
 	stage_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -252,54 +274,18 @@ func _make_battle_viewport() -> SubViewportContainer:
 	camera.look_at_from_position(Vector3(3.8, 3.2, 3.4), Vector3(0.0, 0.25, 0.0), Vector3.UP)
 	camera.current = true
 	battle_field_root.add_child(camera)
-	_add_battle_model("res://assets/openmmo/default/platforms/u_plains.obj", Vector3.ZERO, Vector3.ONE)
-	_add_battle_model("res://assets/openmmo/default/platforms/base.obj", Vector3.ZERO, Vector3.ONE)
 	return container
 
-func _add_battle_model(path: String, position: Vector3, scale: Vector3) -> void:
-	if battle_field_root == null:
-		return
-	var resource: Resource = load(path) as Resource
-	var model: Node3D
-	if resource is PackedScene:
-		model = (resource as PackedScene).instantiate() as Node3D
-	elif resource is ArrayMesh:
-		var mesh_instance := MeshInstance3D.new()
-		mesh_instance.mesh = resource as ArrayMesh
-		model = mesh_instance
-	else:
-		return
-	if model == null:
-		return
-	model.position = position
-	model.scale = scale
-	_configure_battle_model_materials(model, path.ends_with("u_plains.obj"))
-	battle_field_root.add_child(model)
-
-func _configure_battle_model_materials(node: Node, use_plains_texture: bool) -> void:
-	var mesh_nodes: Array[MeshInstance3D] = []
-	if node is MeshInstance3D:
-		mesh_nodes.append(node as MeshInstance3D)
-	for child in node.find_children("*", "MeshInstance3D", true, false):
-		if child is MeshInstance3D:
-			mesh_nodes.append(child as MeshInstance3D)
-	for mesh_instance in mesh_nodes:
-		if mesh_instance.mesh == null:
-			continue
-		var mesh: ArrayMesh = mesh_instance.mesh.duplicate() as ArrayMesh
-		if mesh == null:
-			continue
-		mesh_instance.mesh = mesh
-		for surface in range(mesh.get_surface_count()):
-			var material: Material = mesh.surface_get_material(surface)
-			var configured: StandardMaterial3D = material.duplicate() as StandardMaterial3D if material is StandardMaterial3D else StandardMaterial3D.new()
-			if use_plains_texture and configured.albedo_texture == null:
-				configured.albedo_texture = OPENMMO_PLAINS_TEXTURE
-			configured.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
-			configured.alpha_scissor_threshold = 0.01
-			configured.cull_mode = BaseMaterial3D.CULL_DISABLED
-			configured.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
-			mesh.surface_set_material(surface, configured)
+func _make_platform(size: Vector2) -> TextureRect:
+	var platform := TextureRect.new()
+	platform.texture = OPENMMO_SHADOW_BIG
+	platform.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	platform.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	platform.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	platform.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	platform.size = size
+	platform.z_index = 0
+	return platform
 
 func _animate_battle_intro() -> void:
 	if stage_root == null:
@@ -352,43 +338,6 @@ func _finish_initial_send_out() -> void:
 	input_locked = not can_act
 	_append_log(_waiting_text() if not can_act and not bool(state.get("battle_complete", false)) else "")
 	_render_state()
-
-func _make_battle_backdrop() -> Texture2D:
-	var width: int = 320
-	var height: int = 180
-	var image := Image.create(width, height, false, Image.FORMAT_RGBA8)
-	for y in range(78):
-		var amount: float = float(y) / 77.0
-		image.fill_rect(Rect2i(0, y, width, 1), Color("31bcea").lerp(Color("b9e9df"), amount))
-	image.fill_rect(Rect2i(0, 78, width, 12), Color("6dbd6b"))
-	for x in range(-8, width + 16, 16):
-		_paint_ellipse(image, Vector2i(x + 8, 78 + int(x / 16) % 3), Vector2i(13, 11), Color("346b51"))
-		_paint_ellipse(image, Vector2i(x + 8, 73 + int(x / 16) % 2), Vector2i(9, 10), Color("4d8760"))
-	for y in range(90, height):
-		var amount: float = float(y - 90) / float(height - 90)
-		image.fill_rect(Rect2i(0, y, width, 1), Color("dce8ad").lerp(Color("769754"), amount))
-	image.fill_rect(Rect2i(0, 88, width, 3), Color("4cae55"))
-	_paint_ellipse(image, Vector2i(249, 102), Vector2i(62, 18), Color("174e2d"))
-	_paint_ellipse(image, Vector2i(249, 99), Vector2i(58, 15), Color("278744"))
-	_paint_ellipse(image, Vector2i(249, 98), Vector2i(47, 11), Color("5ec05b"))
-	_paint_ellipse(image, Vector2i(249, 98), Vector2i(37, 8), Color("b5ad78"))
-	_paint_ellipse(image, Vector2i(98, 177), Vector2i(96, 38), Color("133e27"))
-	_paint_ellipse(image, Vector2i(98, 170), Vector2i(91, 32), Color("237c3b"))
-	_paint_ellipse(image, Vector2i(98, 166), Vector2i(76, 26), Color("49af50"))
-	_paint_ellipse(image, Vector2i(98, 164), Vector2i(59, 20), Color("a9a16e"))
-	return ImageTexture.create_from_image(image)
-
-func _paint_ellipse(image: Image, center: Vector2i, radii: Vector2i, color: Color) -> void:
-	var left: int = maxi(0, center.x - radii.x)
-	var top: int = maxi(0, center.y - radii.y)
-	var right: int = mini(image.get_width() - 1, center.x + radii.x)
-	var bottom: int = mini(image.get_height() - 1, center.y + radii.y)
-	for y in range(top, bottom + 1):
-		var normalized_y: float = float(y - center.y) / float(radii.y)
-		for x in range(left, right + 1):
-			var normalized_x: float = float(x - center.x) / float(radii.x)
-			if normalized_x * normalized_x + normalized_y * normalized_y <= 1.0:
-				image.set_pixel(x, y, color)
 
 func _make_mon_card(opponent: bool) -> PanelContainer:
 	var card := PanelContainer.new()
