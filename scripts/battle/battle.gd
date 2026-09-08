@@ -22,6 +22,7 @@ var player_xp_bar: ProgressBar
 var opponent_sprite: TextureRect
 var player_sprite: TextureRect
 var effects_layer: Control
+var party_status_box: HBoxContainer
 var hp_tweens: Dictionary = {}
 var move_hp_tweens: Array[Tween] = []
 var move_tween: Tween
@@ -68,13 +69,13 @@ func _build_ui() -> void:
 	stage.mouse_filter = Control.MOUSE_FILTER_STOP
 	add_child(stage)
 	var field := Panel.new()
-	field.anchor_left = 0.11
-	field.anchor_top = 0.18
-	field.anchor_right = 0.89
-	field.anchor_bottom = 0.95
+	field.anchor_left = 0.055
+	field.anchor_top = 0.09
+	field.anchor_right = 0.945
+	field.anchor_bottom = 0.94
 	field.clip_contents = true
 	field.mouse_filter = Control.MOUSE_FILTER_STOP
-	field.add_theme_stylebox_override("panel", _panel_style(Color("0b1820"), Color("6c8493"), 5, 2))
+	field.add_theme_stylebox_override("panel", _panel_style(Color("071015"), Color("071015"), 0, 0))
 	stage.add_child(field)
 	stage_root = field
 	var backdrop := TextureRect.new()
@@ -95,22 +96,38 @@ func _build_ui() -> void:
 	stage_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	stage_root.add_child(state_label)
 	var opponent_card := _make_mon_card(true)
-	opponent_card.anchor_left = 0.025
+	opponent_card.anchor_left = 0.03
 	opponent_card.anchor_top = 0.07
-	opponent_card.anchor_right = 0.39
+	opponent_card.anchor_right = 0.41
 	opponent_card.anchor_bottom = 0.26
 	stage_root.add_child(opponent_card)
 	var player_card := _make_mon_card(false)
-	player_card.anchor_left = 0.58
+	player_card.anchor_left = 0.56
 	player_card.anchor_top = 0.55
-	player_card.anchor_right = 0.975
-	player_card.anchor_bottom = 0.76
+	player_card.anchor_right = 0.97
+	player_card.anchor_bottom = 0.78
 	stage_root.add_child(player_card)
+	party_status_box = HBoxContainer.new()
+	party_status_box.anchor_left = 0.78
+	party_status_box.anchor_top = 0.79
+	party_status_box.anchor_right = 0.97
+	party_status_box.anchor_bottom = 0.86
+	party_status_box.alignment = BoxContainer.ALIGNMENT_END
+	party_status_box.add_theme_constant_override("separation", 3)
+	party_status_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	party_status_box.z_index = 4
+	for _index in 6:
+		var indicator := Label.new()
+		indicator.text = "○"
+		indicator.add_theme_font_size_override("font_size", 16)
+		indicator.add_theme_color_override("font_color", Color("d4d9d4"))
+		party_status_box.add_child(indicator)
+	stage_root.add_child(party_status_box)
 	opponent_sprite = _make_sprite()
-	opponent_sprite.anchor_left = 0.64
+	opponent_sprite.anchor_left = 0.58
 	opponent_sprite.anchor_top = 0.20
-	opponent_sprite.anchor_right = 0.94
-	opponent_sprite.anchor_bottom = 0.62
+	opponent_sprite.anchor_right = 0.96
+	opponent_sprite.anchor_bottom = 0.60
 	opponent_sprite.pivot_offset = Vector2(130.0, 100.0)
 	opponent_sprite.z_index = 1
 	stage_root.add_child(opponent_sprite)
@@ -128,31 +145,33 @@ func _build_ui() -> void:
 	effects_layer.z_index = 2
 	stage_root.add_child(effects_layer)
 	var log_panel := PanelContainer.new()
-	log_panel.anchor_left = 0.55
-	log_panel.anchor_top = 0.77
-	log_panel.anchor_right = 0.975
-	log_panel.anchor_bottom = 0.97
-	log_panel.add_theme_stylebox_override("panel", _panel_style(Color(0.035, 0.055, 0.04, 0.88), Color("536a64"), 5, 1))
+	log_panel.anchor_left = 0.0
+	log_panel.anchor_top = 0.70
+	log_panel.anchor_right = 1.0
+	log_panel.anchor_bottom = 1.0
+	log_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	log_panel.z_index = 2
+	log_panel.add_theme_stylebox_override("panel", _panel_style(Color(0.035, 0.055, 0.04, 0.78), Color(0.0, 0.0, 0.0, 0.0), 0, 0))
 	stage_root.add_child(log_panel)
 	log_view = RichTextLabel.new()
 	log_view.bbcode_enabled = false
 	log_view.fit_content = false
 	log_view.scroll_active = true
 	log_view.scroll_following = true
-	log_view.custom_minimum_size = Vector2(0.0, 72.0)
-	log_view.add_theme_font_size_override("normal_font_size", 13)
+	log_view.custom_minimum_size = Vector2(0.0, 88.0)
+	log_view.add_theme_font_size_override("normal_font_size", 16)
 	log_panel.add_child(log_view)
 	log_view.scroll_following = true
 	var action_panel := PanelContainer.new()
-	action_panel.anchor_left = 0.025
-	action_panel.anchor_top = 0.74
-	action_panel.anchor_right = 0.535
-	action_panel.anchor_bottom = 0.97
+	action_panel.anchor_left = 0.55
+	action_panel.anchor_top = 0.70
+	action_panel.anchor_right = 0.99
+	action_panel.anchor_bottom = 0.985
 	action_panel.z_index = 3
-	action_panel.add_theme_stylebox_override("panel", _panel_style(Color(0.035, 0.055, 0.04, 0.94), Color("71866f"), 5, 1))
+	action_panel.add_theme_stylebox_override("panel", _panel_style(Color(0.0, 0.0, 0.0, 0.0), Color(0.0, 0.0, 0.0, 0.0), 0, 0))
 	stage_root.add_child(action_panel)
 	action_box = VBoxContainer.new()
-	action_box.add_theme_constant_override("separation", 5)
+	action_box.add_theme_constant_override("separation", 4)
 	action_panel.add_child(action_box)
 	close_button = _make_button("Return to world")
 	close_button.set_anchors_preset(Control.PRESET_TOP_RIGHT)
@@ -210,31 +229,33 @@ func _paint_ellipse(image: Image, center: Vector2i, radii: Vector2i, color: Colo
 
 func _make_mon_card(opponent: bool) -> PanelContainer:
 	var card := PanelContainer.new()
-	card.add_theme_stylebox_override("panel", _panel_style(Color(0.02, 0.04, 0.07, 0.93), Color("7186a2"), 8, 1))
+	card.add_theme_stylebox_override("panel", _panel_style(Color(0.92, 0.94, 0.89, 0.94), Color("34454b"), 5, 2))
 	var margin := MarginContainer.new()
-	margin.add_theme_constant_override("margin_left", 12)
-	margin.add_theme_constant_override("margin_top", 8)
-	margin.add_theme_constant_override("margin_right", 12)
-	margin.add_theme_constant_override("margin_bottom", 8)
+	margin.add_theme_constant_override("margin_left", 10)
+	margin.add_theme_constant_override("margin_top", 7)
+	margin.add_theme_constant_override("margin_right", 10)
+	margin.add_theme_constant_override("margin_bottom", 7)
 	card.add_child(margin)
 	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 2)
+	box.add_theme_constant_override("separation", 3)
 	margin.add_child(box)
 	var name_label := Label.new()
-	name_label.add_theme_font_size_override("font_size", 17)
+	name_label.add_theme_font_size_override("font_size", 16)
+	name_label.add_theme_color_override("font_color", Color("26363b"))
 	box.add_child(name_label)
 	var level_label := Label.new()
 	level_label.add_theme_font_size_override("font_size", 12)
-	level_label.add_theme_color_override("font_color", Color("b8cbe0"))
+	level_label.add_theme_color_override("font_color", Color("4c5d61"))
 	box.add_child(level_label)
 	var hp_bar := ProgressBar.new()
 	hp_bar.show_percentage = false
-	hp_bar.custom_minimum_size = Vector2(0.0, 13.0)
-	hp_bar.add_theme_stylebox_override("background", _panel_style(Color("26303d"), Color("26303d"), 5, 0))
+	hp_bar.custom_minimum_size = Vector2(0.0, 12.0)
+	hp_bar.add_theme_stylebox_override("background", _panel_style(Color("c2c9c1"), Color("57656a"), 4, 1))
 	hp_bar.add_theme_stylebox_override("fill", _panel_style(Color("5ccf77") if not opponent else Color("e6bd5a"), Color("5ccf77") if not opponent else Color("e6bd5a"), 5, 0))
 	box.add_child(hp_bar)
 	var hp_label := Label.new()
 	hp_label.add_theme_font_size_override("font_size", 11)
+	hp_label.add_theme_color_override("font_color", Color("26363b"))
 	hp_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	box.add_child(hp_label)
 	if opponent:
@@ -247,7 +268,7 @@ func _make_mon_card(opponent: bool) -> PanelContainer:
 		xp_bar.show_percentage = false
 		xp_bar.custom_minimum_size = Vector2(0.0, 8.0)
 		xp_bar.max_value = 1.0
-		xp_bar.add_theme_stylebox_override("background", _panel_style(Color("26303d"), Color("26303d"), 4, 0))
+		xp_bar.add_theme_stylebox_override("background", _panel_style(Color("c2c9c1"), Color("57656a"), 4, 1))
 		xp_bar.add_theme_stylebox_override("fill", _panel_style(Color("3d8be0"), Color("3d8be0"), 4, 0))
 		box.add_child(xp_bar)
 		player_name_label = name_label
@@ -281,10 +302,14 @@ func _make_button(label: String) -> Button:
 	var button := Button.new()
 	button.text = label
 	button.focus_mode = Control.FOCUS_ALL
-	button.add_theme_font_size_override("font_size", 14)
-	button.add_theme_stylebox_override("normal", _panel_style(Color("111b28"), Color("536a84"), 6, 1))
-	button.add_theme_stylebox_override("hover", _panel_style(Color("1d3650"), Color("8fb9df"), 6, 1))
-	button.add_theme_stylebox_override("pressed", _panel_style(Color("274b68"), Color("b7d9f4"), 6, 1))
+	button.add_theme_font_size_override("font_size", 13)
+	button.add_theme_color_override("font_color", Color("f2f4ed"))
+	button.add_theme_color_override("font_hover_color", Color("ffffff"))
+	button.add_theme_color_override("font_pressed_color", Color("ffffff"))
+	button.add_theme_stylebox_override("normal", _panel_style(Color(0.12, 0.16, 0.18, 0.92), Color("73848a"), 3, 1))
+	button.add_theme_stylebox_override("hover", _panel_style(Color(0.20, 0.26, 0.27, 0.96), Color("d3c25b"), 3, 2))
+	button.add_theme_stylebox_override("focus", _panel_style(Color(0.20, 0.26, 0.27, 0.96), Color("d3c25b"), 3, 2))
+	button.add_theme_stylebox_override("pressed", _panel_style(Color(0.27, 0.32, 0.31, 0.98), Color("eee1a0"), 3, 2))
 	return button
 
 func _return_to_world() -> void:
@@ -421,6 +446,7 @@ func _render_state() -> void:
 	_update_mon_card(player_name_label, player_level_label, player_hp_bar, player_hp_label, player, "player", player_xp_bar)
 	_update_sprite(opponent_sprite, opponent, false)
 	_update_sprite(player_sprite, player, true)
+	_update_party_status(player_party)
 	var battle_complete: bool = bool(state.get("battle_complete", false))
 	close_button.disabled = not battle_complete
 	close_button.visible = battle_complete
@@ -513,6 +539,22 @@ func _update_sprite(sprite: TextureRect, mon: Dictionary, back: bool) -> void:
 	if previous_texture != sprite.texture:
 		sprite.modulate = Color.WHITE
 
+func _update_party_status(party: Array) -> void:
+	if party_status_box == null:
+		return
+	for index in party_status_box.get_child_count():
+		var indicator: Label = party_status_box.get_child(index) as Label
+		if indicator == null:
+			continue
+		if index >= party.size() or not party[index] is Dictionary:
+			indicator.text = "○"
+			indicator.add_theme_color_override("font_color", Color("aab3ac"))
+			continue
+		var mon: Dictionary = party[index]
+		var current_hp: int = int(mon.get("current_hp", mon.get("hp", 0)))
+		indicator.text = "●" if current_hp > 0 else "×"
+		indicator.add_theme_color_override("font_color", Color("d6c35c") if current_hp > 0 else Color("78817c"))
+
 func _render_party(container: VBoxContainer, party_value: Variant, active_slot: int, opponent: bool) -> void:
 	for child in container.get_children():
 		child.queue_free()
@@ -566,10 +608,6 @@ func _render_actions() -> void:
 	selection_index = 0
 	for child in action_box.get_children():
 		child.queue_free()
-	var heading := Label.new()
-	heading.text = "Actions"
-	heading.add_theme_font_size_override("font_size", 18)
-	action_box.add_child(heading)
 	if bool(state.get("battle_complete", false)):
 		var complete := Label.new()
 		complete.text = "Battle complete."
@@ -591,17 +629,16 @@ func _render_actions() -> void:
 	else:
 		var buttons := GridContainer.new()
 		buttons.columns = 2
-		for entry in [["Fight", "fight"], ["Bag", "bag"], ["Pokémon", "pokemon"], ["Run", "run"]]:
-			var button := _make_button("")
-			button.text = "Pokemon" if str(entry[1]) == "pokemon" else str(entry[0])
-			button.custom_minimum_size = Vector2(120, 42)
-			if str(entry[1]) == "fight":
+		for entry in [["FIGHT", "Select your attack move.", "fight"], ["BAG", "Use an item.", "bag"], ["POKéMON", "Switch current Pokémon.", "pokemon"], ["RUN", "Escape from battle.", "run"]]:
+			var button := _make_button("%s\n%s" % [str(entry[0]), str(entry[1])])
+			button.custom_minimum_size = Vector2(178, 48)
+			if str(entry[2]) == "fight":
 				button.pressed.connect(_choose_fight)
-			elif str(entry[1]) == "bag":
+			elif str(entry[2]) == "bag":
 				button.pressed.connect(_choose_bag)
-			elif str(entry[1]) == "pokemon":
+			elif str(entry[2]) == "pokemon":
 				button.pressed.connect(_choose_pokemon)
-			elif str(entry[1]) == "run":
+			elif str(entry[2]) == "run":
 				button.pressed.connect(_send_run)
 			_register_selection_button(button)
 			buttons.add_child(button)
@@ -638,7 +675,7 @@ func _render_move_selection() -> void:
 		var move_id: int = int(move.get("id", 0))
 		if move_id <= 0:
 			continue
-		var button := Button.new()
+		var button := _make_button("")
 		var move_info: Dictionary = GameState.content.battle_move_info(move_id) if GameState.content != null else {}
 		var move_name: String = str(move_info.get("name", GameState.content.battle_move_name(move_id) if GameState.content != null else "MOVE %d" % move_id))
 		var move_type: String = str(move_info.get("type_name", ""))
@@ -669,7 +706,7 @@ func _render_pokemon_selection() -> void:
 			var slot: int = int(mon.get("slot", -1))
 			if slot < 0 or slot == int(state.get("active_slot", -1)) or int(mon.get("current_hp", 0)) <= 0:
 				continue
-			var button := Button.new()
+			var button := _make_button("")
 			var current_hp: int = int(mon.get("current_hp", mon.get("hp", 0)))
 			var max_hp: int = int(mon.get("max_hp", mon.get("hp_max", 0)))
 			if max_hp <= 0:
