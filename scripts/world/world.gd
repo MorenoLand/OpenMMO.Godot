@@ -309,8 +309,6 @@ func _on_world_snapshot(value: Dictionary) -> void:
 	_sync_map_entities()
 
 func _on_map_load(value: Dictionary) -> void:
-	if map_view != null:
-		map_view.set_input_enabled(false)
 	if dialogue_overlay != null and dialogue_overlay.is_open():
 		dialogue_overlay.close_dialogue()
 		map_view.set_dialogue_active(false)
@@ -352,8 +350,6 @@ func _load_map_texture(map_id: String, expected_width: int = 0, expected_height:
 	var server_map: Dictionary = GameState.content._server_map_for_local_map(map_id, GameState.server_maps)
 	if not GameState.content._is_server_custom_map(server_map):
 		var cached_map: Dictionary = await _ensure_rom_map_prepared(map_id)
-		if generation != connected_world_generation:
-			return false
 		if not bool(cached_map.get("ok", false)):
 			status_label.text = "Map renderer: %s" % str(cached_map.get("error", "map rendering failed"))
 			return false
